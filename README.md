@@ -21,7 +21,7 @@ git init
 git add .
 git commit -m "initial commit"
 git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/valor-dashboard.git
+git remote add origin https://github.com/YOUR_USERNAME/IntelBrief-Hormuz-Iran.git
 git push -u origin main
 ```
 
@@ -40,7 +40,7 @@ The GitHub Action will build and deploy. Check the **Actions** tab to watch prog
 
 Your site will be live at:
 ```
-https://YOUR_USERNAME.github.io/valor-dashboard/
+https://YOUR_USERNAME.github.io/IntelBrief-Hormuz-Iran/
 ```
 
 ## If you named the repo something different

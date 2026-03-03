@@ -990,7 +990,7 @@ function SignalMonitorTab() {
         if (s.id === "vlcc") formatted = "$" + Math.round(newNumeric).toLocaleString();
         else if (s.unit === "/bbl" || s.id === "spread") formatted = "$" + newNumeric.toFixed(2);
         else if (s.unit === "%") formatted = Math.round(newNumeric) + "%";
-        else if (Number.isInteger(s.numeric)) formatted = String(Math.round(newNumeric));
+        else if (Number.isInteger(newNumeric)) formatted = String(newNumeric);
         else formatted = newNumeric.toFixed(1);
         const newSeverity = computeSeverity(s.id, newNumeric, s.severity);
         return { ...s, numeric: newNumeric, value: formatted, severity: newSeverity, lastUpdate: new Date() };
