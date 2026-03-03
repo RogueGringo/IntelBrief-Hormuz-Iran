@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import LiveFeedTab from "./LiveFeedTab.jsx";
+import PatternsTab from "./PatternsTab.jsx";
 
 const COLORS = {
   bg: "#0a0c10",
@@ -93,9 +95,11 @@ function Header({ activeTab, setActiveTab }) {
   const tabs = [
     { id: "thesis", label: "THE THESIS" },
     { id: "nodes", label: "TRACKING NODES" },
+    { id: "patterns", label: "PATTERNS OF LIFE" },
     { id: "portfolio", label: "PORTFOLIO MAP" },
     { id: "playbook", label: "EFFECT CHAINS" },
     { id: "monitor", label: "SIGNAL MONITOR" },
+    { id: "feed", label: "LIVE FEED" },
   ];
   return (
     <div style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "24px 32px 0" }}>
@@ -1390,9 +1394,11 @@ export default function App() {
       <div style={{ overflowY: "auto", maxHeight: "calc(100vh - 120px)" }}>
         {activeTab === "thesis" && <ThesisTab />}
         {activeTab === "nodes" && <NodesTab />}
+        {activeTab === "patterns" && <PatternsTab />}
         {activeTab === "portfolio" && <PortfolioTab />}
         {activeTab === "playbook" && <PlaybookTab />}
         {activeTab === "monitor" && <SignalMonitorTab />}
+        {activeTab === "feed" && <LiveFeedTab />}
       </div>
     </div>
   );
