@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import LiveFeedTab from "./LiveFeedTab.jsx";
 import PatternsTab from "./PatternsTab.jsx";
+import { fetchCommodityPrices } from "./DataService.jsx";
 
 const COLORS = {
   bg: "#0a0c10",
@@ -108,7 +109,16 @@ function Header({ activeTab, setActiveTab }) {
           VALOR ENERGY PARTNERS
         </span>
         <span style={{ fontSize: 11, color: COLORS.textMuted, letterSpacing: 3, textTransform: "uppercase" }}>
-          Strategic Intelligence Brief · March 2026
+          Strategic Intelligence Brief · Live
+        </span>
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 4,
+          fontSize: 9, letterSpacing: 1, padding: "2px 8px", borderRadius: 3,
+          background: `${COLORS.green}15`, color: COLORS.green, fontWeight: 700,
+          marginLeft: "auto",
+        }}>
+          <span style={{ width: 5, height: 5, borderRadius: "50%", background: COLORS.green, animation: "pulse 2s infinite" }} />
+          CONTINUOUS UPDATE
         </span>
       </div>
       <p style={{ fontSize: 13, color: COLORS.textDim, margin: "4px 0 16px", maxWidth: 720, lineHeight: 1.5 }}>
@@ -970,12 +980,14 @@ function PlaybookTab() {
 // ─── SIGNAL MONITOR TAB ────────────────────────────────────
 function SignalMonitorTab() {
   const [signals, setSignals] = useState(() =>
-    SIGNALS.map(s => ({ ...s, lastUpdate: new Date() }))
+    SIGNALS.map(s => ({ ...s, lastUpdate: new Date(), dataSource: "scenario" }))
   );
   const [filter, setFilter] = useState({ severity: "all", category: "all" });
   const [analyzerText, setAnalyzerText] = useState("");
   const [analysisResult, setAnalysisResult] = useState(null);
   const [now, setNow] = useState(Date.now());
+  const [priceData, setPriceData] = useState(null);
+  const [priceStatus, setPriceStatus] = useState("loading");
 
   // Tick every second so timestamps stay current
   useEffect(() => {
@@ -983,10 +995,54 @@ function SignalMonitorTab() {
     return () => clearInterval(timerId);
   }, []);
 
-  // Simulated real-time updates
+  // Fetch real commodity prices and overlay onto signals
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchPrices() {
+      try {
+        const data = await fetchCommodityPrices();
+        if (cancelled) return;
+        setPriceData(data);
+        setPriceStatus(data.source);
+
+        if (data.source === "live" || data.source === "cached") {
+          setSignals(prev => prev.map(s => {
+            const priceInfo = data.prices[s.id];
+            if (!priceInfo || priceInfo.price === undefined) return s;
+            const newNumeric = priceInfo.price;
+            let formatted;
+            if (s.id === "vlcc") formatted = "$" + Math.round(newNumeric).toLocaleString();
+            else if (s.unit === "/bbl" || s.id === "spread") formatted = "$" + newNumeric.toFixed(2);
+            else if (s.unit === "%") formatted = Math.round(newNumeric) + "%";
+            else formatted = newNumeric.toFixed(1);
+            const newSeverity = computeSeverity(s.id, newNumeric, s.severity);
+            return {
+              ...s,
+              numeric: newNumeric,
+              value: formatted,
+              severity: newSeverity,
+              lastUpdate: new Date(),
+              dataSource: priceInfo.source === "live" ? "live" : "derived",
+            };
+          }));
+        }
+      } catch {
+        if (!cancelled) setPriceStatus("error");
+      }
+    }
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 2 * 60 * 1000); // refresh every 2 min
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
+  // Simulated updates for signals without live data
   useEffect(() => {
     const interval = setInterval(() => {
       setSignals(prev => prev.map(s => {
+        // Skip signals that have live data — don't add jitter to real numbers
+        if (s.dataSource === "live" || s.dataSource === "derived") {
+          return { ...s, lastUpdate: new Date() };
+        }
         if (!s.jitter || !s.numeric) return { ...s, lastUpdate: new Date() };
         const delta = (Math.random() - 0.45) * s.jitter;
         const newNumeric = Math.max(0, s.numeric + delta);
@@ -1060,6 +1116,9 @@ function SignalMonitorTab() {
   const regimeLabel = coherenceScore >= 75 ? "CRISIS REGIME" : coherenceScore >= 50 ? "TRANSITION" : "STABLE";
   const regimeColor = coherenceScore >= 75 ? COLORS.red : coherenceScore >= 50 ? COLORS.orange : COLORS.green;
 
+  const liveSignalCount = signals.filter(s => s.dataSource === "live" || s.dataSource === "derived").length;
+  const scenarioSignalCount = signals.length - liveSignalCount;
+
   return (
     <div style={{ padding: "32px", maxWidth: 1200 }}>
       {/* ── SYSTEM STATUS HEADER ── */}
@@ -1072,23 +1131,49 @@ function SignalMonitorTab() {
             Signal Monitor
           </h2>
           <p style={{ fontSize: 13, color: COLORS.textDim, margin: 0, lineHeight: 1.5 }}>
-            Real-time condition:state tracking across all effect-indicators. Signals update continuously.
+            Condition:state tracking across all effect-indicators. Price signals update from live market data.
             Coherence measures whether independent indicators agree — consolidation indicates structural shift.
           </p>
         </div>
-        <div style={{
-          display: "flex", alignItems: "center", gap: 12,
-          padding: "12px 20px", borderRadius: 8,
-          background: `${regimeColor}15`, border: `1px solid ${regimeColor}40`,
-        }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          {/* Data source indicator */}
           <div style={{
-            width: 10, height: 10, borderRadius: "50%", background: regimeColor,
-            boxShadow: `0 0 8px ${regimeColor}80`,
-            animation: "pulse 2s infinite",
-          }} />
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: regimeColor, letterSpacing: 1.5 }}>{regimeLabel}</div>
-            <div style={{ fontSize: 10, color: COLORS.textDim }}>System State</div>
+            padding: "10px 14px", borderRadius: 8, textAlign: "center",
+            background: `${priceStatus === "live" ? COLORS.green : priceStatus === "cached" ? COLORS.blue : COLORS.orange}10`,
+            border: `1px solid ${priceStatus === "live" ? COLORS.green : priceStatus === "cached" ? COLORS.blue : COLORS.orange}30`,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, justifyContent: "center", marginBottom: 3 }}>
+              <div style={{
+                width: 6, height: 6, borderRadius: "50%",
+                background: priceStatus === "live" ? COLORS.green : priceStatus === "cached" ? COLORS.blue : COLORS.orange,
+                animation: priceStatus === "live" ? "pulse 2s infinite" : "none",
+              }} />
+              <span style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: 1,
+                color: priceStatus === "live" ? COLORS.green : priceStatus === "cached" ? COLORS.blue : COLORS.orange,
+              }}>
+                {priceStatus === "live" ? "LIVE DATA" : priceStatus === "cached" ? "CACHED" : priceStatus === "loading" ? "FETCHING" : "SCENARIO"}
+              </span>
+            </div>
+            <div style={{ fontSize: 9, color: COLORS.textMuted }}>
+              {liveSignalCount} live · {scenarioSignalCount} scenario
+            </div>
+          </div>
+          {/* Regime badge */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: 12,
+            padding: "12px 20px", borderRadius: 8,
+            background: `${regimeColor}15`, border: `1px solid ${regimeColor}40`,
+          }}>
+            <div style={{
+              width: 10, height: 10, borderRadius: "50%", background: regimeColor,
+              boxShadow: `0 0 8px ${regimeColor}80`,
+              animation: "pulse 2s infinite",
+            }} />
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: regimeColor, letterSpacing: 1.5 }}>{regimeLabel}</div>
+              <div style={{ fontSize: 10, color: COLORS.textDim }}>System State</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1221,13 +1306,29 @@ function SignalMonitorTab() {
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <span style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 0.5 }}>{s.name}</span>
-                  <span style={{
-                    fontSize: 8, fontWeight: 700, letterSpacing: 1,
-                    padding: "1px 5px", borderRadius: 3,
-                    background: `${severityColor(s.severity)}20`, color: severityColor(s.severity),
-                  }}>
-                    {s.severity.toUpperCase()}
-                  </span>
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    {s.dataSource === "live" && (
+                      <span style={{
+                        fontSize: 7, fontWeight: 700, letterSpacing: 0.5,
+                        padding: "1px 4px", borderRadius: 2,
+                        background: `${COLORS.green}25`, color: COLORS.green,
+                      }}>LIVE</span>
+                    )}
+                    {s.dataSource === "derived" && (
+                      <span style={{
+                        fontSize: 7, fontWeight: 700, letterSpacing: 0.5,
+                        padding: "1px 4px", borderRadius: 2,
+                        background: `${COLORS.blue}25`, color: COLORS.blue,
+                      }}>CALC</span>
+                    )}
+                    <span style={{
+                      fontSize: 8, fontWeight: 700, letterSpacing: 1,
+                      padding: "1px 5px", borderRadius: 3,
+                      background: `${severityColor(s.severity)}20`, color: severityColor(s.severity),
+                    }}>
+                      {s.severity.toUpperCase()}
+                    </span>
+                  </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
                   <span style={{ fontSize: 18, fontWeight: 800, color: COLORS.text }}>{s.value}</span>
