@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const COLORS = {
   bg: "#0a0c10",
@@ -41,6 +41,27 @@ const SIGNALS = [
   { id: "duc", category: "domestic", name: "DUC Inventory", value: "878", numeric: 878, unit: "", severity: "high", trend: "down", jitter: 0 },
   { id: "production", category: "domestic", name: "US Production", value: "13.5M", numeric: 13.5, unit: "M bpd", severity: "moderate", trend: "down", jitter: 0 },
 ];
+
+// Thresholds for dynamic severity re-evaluation on signals that have numeric jitter
+const SEVERITY_THRESHOLDS = {
+  stranded: [["critical", 180], ["high", 140], ["moderate", 100]],
+  bypass:   [["critical", 85],  ["high", 70],  ["moderate", 50]],
+  vlcc:     [["critical", 350000], ["high", 250000], ["moderate", 150000]],
+  brent:    [["critical", 90],  ["high", 80],  ["moderate", 70]],
+  wti:      [["critical", 85],  ["high", 78],  ["moderate", 70]],
+  spread:   [["critical", 10],  ["high", 7],   ["moderate", 4]],
+  ovx:      [["critical", 80],  ["high", 60],  ["moderate", 40]],
+  kcposted: [["critical", 80],  ["high", 72],  ["moderate", 60]],
+};
+
+function computeSeverity(id, numeric, baseSeverity) {
+  const thresholds = SEVERITY_THRESHOLDS[id];
+  if (!thresholds || numeric === null) return baseSeverity;
+  for (const [level, threshold] of thresholds) {
+    if (numeric >= threshold) return level;
+  }
+  return "watch";
+}
 
 const CATEGORY_META = {
   kernel: { label: "KERNEL CONDITION", color: COLORS.red },
@@ -562,6 +583,19 @@ function NodesTab() {
 
 // ─── PORTFOLIO TAB ─────────────────────────────────────────
 function PortfolioTab() {
+  const plotContainerRef = useRef(null);
+  const [plotWidth, setPlotWidth] = useState(900);
+
+  useEffect(() => {
+    const el = plotContainerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(entries => {
+      const { width } = entries[0].contentRect;
+      setPlotWidth(Math.max(200, width - 80)); // subtract left(60) + right(20) padding
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const prospects = [
     {
       name: "Arbuckle\nButler Co., KS",
@@ -624,7 +658,7 @@ function PortfolioTab() {
       </div>
 
       {/* Risk-Reward scatter */}
-      <div style={{
+      <div ref={plotContainerRef} style={{
         background: COLORS.surface,
         border: `1px solid ${COLORS.border}`,
         borderRadius: 12,
@@ -648,15 +682,14 @@ function PortfolioTab() {
             position: "absolute",
             bottom: 20 + (v / 100) * 250,
             left: 60, right: 20,
-            height: 1,
-            background: `${COLORS.border}60`,
-            borderStyle: "dashed",
+            height: 0,
+            borderTop: `1px dashed ${COLORS.border}60`,
           }} />
         ))}
         {[25, 50, 75].map(v => (
           <div key={`v${v}`} style={{
             position: "absolute",
-            left: 60 + (v / 100) * (typeof window !== "undefined" ? Math.min(window.innerWidth - 200, 1020) : 900),
+            left: 60 + (v / 100) * plotWidth,
             bottom: 20, top: 30,
             width: 1,
             background: `${COLORS.border}60`,
@@ -665,7 +698,6 @@ function PortfolioTab() {
 
         {/* Prospect dots */}
         {prospects.map((p, i) => {
-          const plotWidth = 900;
           const plotHeight = 250;
           const x = 60 + (p.risk / 100) * plotWidth;
           const y = 270 - (p.reward / 100) * plotHeight;
@@ -701,15 +733,6 @@ function PortfolioTab() {
             </div>
           );
         })}
-
-        {/* Flow arrows (conceptual) */}
-        <svg style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 1 }}>
-          <defs>
-            <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-              <polygon points="0 0, 8 3, 0 6" fill={COLORS.goldDim} opacity="0.5" />
-            </marker>
-          </defs>
-        </svg>
       </div>
 
       {/* Prospect cards */}
@@ -723,7 +746,7 @@ function PortfolioTab() {
             borderTop: `3px solid ${p.color}`,
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: p.color }}>{p.name.replace("\n", " — ")}</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: p.color }}>{p.name.replace(/\n/g, " — ")}</span>
               <span style={{
                 fontSize: 10, fontWeight: 700, letterSpacing: 1,
                 padding: "3px 8px", borderRadius: 4,
@@ -948,6 +971,13 @@ function SignalMonitorTab() {
   const [filter, setFilter] = useState({ severity: "all", category: "all" });
   const [analyzerText, setAnalyzerText] = useState("");
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [now, setNow] = useState(Date.now());
+
+  // Tick every second so timestamps stay current
+  useEffect(() => {
+    const timerId = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timerId);
+  }, []);
 
   // Simulated real-time updates
   useEffect(() => {
@@ -960,9 +990,10 @@ function SignalMonitorTab() {
         if (s.id === "vlcc") formatted = "$" + Math.round(newNumeric).toLocaleString();
         else if (s.unit === "/bbl" || s.id === "spread") formatted = "$" + newNumeric.toFixed(2);
         else if (s.unit === "%") formatted = Math.round(newNumeric) + "%";
-        else if (Number.isInteger(s.numeric)) formatted = String(Math.round(newNumeric));
+        else if (Number.isInteger(newNumeric)) formatted = String(Math.round(newNumeric));
         else formatted = newNumeric.toFixed(1);
-        return { ...s, numeric: newNumeric, value: formatted, lastUpdate: new Date() };
+        const newSeverity = computeSeverity(s.id, newNumeric, s.severity);
+        return { ...s, numeric: newNumeric, value: formatted, severity: newSeverity, lastUpdate: new Date() };
       }));
     }, 5000);
     return () => clearInterval(interval);
@@ -1017,7 +1048,7 @@ function SignalMonitorTab() {
     t === "up" ? "▲" : t === "down" ? "▼" : "■";
 
   const formatTime = (d) => {
-    const s = Math.floor((new Date() - d) / 1000);
+    const s = Math.floor((now - d) / 1000);
     return s < 5 ? "just now" : s + "s ago";
   };
 
@@ -1057,8 +1088,6 @@ function SignalMonitorTab() {
           </div>
         </div>
       </div>
-
-      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
       {/* ── COHERENCE GAUGE + FILTER CONTROLS ── */}
       <div style={{
@@ -1182,9 +1211,10 @@ function SignalMonitorTab() {
               <div key={s.id} style={{
                 padding: "14px 16px", borderRadius: 8,
                 background: `${severityColor(s.severity)}08`,
+                borderTop: `1px solid ${severityColor(s.severity)}20`,
+                borderRight: `1px solid ${severityColor(s.severity)}20`,
+                borderBottom: `1px solid ${severityColor(s.severity)}20`,
                 borderLeft: `3px solid ${catMeta.color}`,
-                border: `1px solid ${severityColor(s.severity)}20`,
-                borderLeftWidth: 3, borderLeftColor: catMeta.color,
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <span style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 0.5 }}>{s.name}</span>
@@ -1356,8 +1386,6 @@ export default function App() {
       fontFamily: "'DM Sans', 'Helvetica Neue', sans-serif",
       fontSize: 14,
     }}>
-      <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-      
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
       
       <div style={{ overflowY: "auto", maxHeight: "calc(100vh - 120px)" }}>

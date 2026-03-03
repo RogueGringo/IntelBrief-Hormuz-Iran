@@ -7,7 +7,8 @@ Interactive dashboard synthesizing the Geometry of Being framework with upstream
 ### Step 1: Create the repo
 
 Go to [github.com/new](https://github.com/new) and create a new repository.
-- Name it `valor-dashboard` (or whatever you want — just update `vite.config.js` to match)
+- The `vite.config.js` in this project is already set to `base: '/IntelBrief-Hormuz-Iran/'` — if you keep the default name, no changes are needed
+- If you name your repo something else (e.g. `valor-dashboard`), update `vite.config.js` line 6 to match
 - Public or Private — both work (Private requires GitHub Pro for Pages)
 - Do NOT initialize with README
 
@@ -44,7 +45,7 @@ https://YOUR_USERNAME.github.io/valor-dashboard/
 
 ## If you named the repo something different
 
-Edit `vite.config.js` line 6:
+Edit `vite.config.js` line 6 to match your repository name:
 ```js
 base: '/your-actual-repo-name/',
 ```
