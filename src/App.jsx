@@ -1214,7 +1214,6 @@ function SignalMonitorTab() {
                 borderTop: `1px solid ${severityColor(s.severity)}20`,
                 borderRight: `1px solid ${severityColor(s.severity)}20`,
                 borderBottom: `1px solid ${severityColor(s.severity)}20`,
-                borderLeft: `3px solid ${catMeta.color}`,
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <span style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 0.5 }}>{s.name}</span>
