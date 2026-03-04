@@ -11,9 +11,8 @@
 
 // ─── HF PROXY CONFIGURATION ─────────────────────────────────
 // Set this to your Hugging Face Space URL. The dashboard tries this first.
-// Example: "https://YOUR-USERNAME-valor-proxy.hf.space"
 const HF_PROXY_URL = (typeof import.meta !== "undefined" && import.meta.env?.VITE_HF_PROXY_URL)
-  || ""; // empty = skip HF proxy, use CORS fallback only
+  || "https://roguegringo-valor-proxy.hf.space";
 
 async function fetchHFProxy(endpoint, timeoutMs = 12000) {
   if (!HF_PROXY_URL) return null;
