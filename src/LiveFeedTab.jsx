@@ -30,40 +30,49 @@ export default function LiveFeedTab() {
   const [loading, setLoading] = useState(true);
   const [feedFilter, setFeedFilter] = useState("all");
   const [classFilter, setClassFilter] = useState("all");
-  const [selectedItem, setSelectedItem] = useState(null);
+  const [selectedItemKey, setSelectedItemKey] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [nextRefresh, setNextRefresh] = useState(null);
   const [refreshCountdown, setRefreshCountdown] = useState(null);
   const refreshTimerRef = useRef(null);
   const countdownRef = useRef(null);
+  const hasFetchedRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const doRefresh = useCallback(async () => {
-    setLoading(prev => prev || !feedData); // only show full loading on first fetch
+    // Only show full loading state on first fetch — use ref to avoid stale closure
+    if (!hasFetchedRef.current) setLoading(true);
     try {
       const data = await fetchAllFeeds();
+      if (!mountedRef.current) return;
       setFeedData(data);
+      hasFetchedRef.current = true;
       setLastRefresh(new Date());
       setNextRefresh(new Date(Date.now() + REFRESH_INTERVAL));
     } catch {
       // keep existing data
     }
-    setLoading(false);
-  }, [feedData]);
+    if (mountedRef.current) setLoading(false);
+  }, []); // no dependencies — uses refs for mutable state
 
   // Initial fetch + auto-refresh
   useEffect(() => {
     doRefresh();
     refreshTimerRef.current = setInterval(doRefresh, REFRESH_INTERVAL);
     return () => clearInterval(refreshTimerRef.current);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [doRefresh]);
 
   // Countdown timer
   useEffect(() => {
+    if (!nextRefresh) return;
     countdownRef.current = setInterval(() => {
-      if (nextRefresh) {
-        const diff = Math.max(0, Math.ceil((nextRefresh - Date.now()) / 1000));
-        setRefreshCountdown(diff);
-      }
+      const diff = Math.max(0, Math.ceil((nextRefresh - Date.now()) / 1000));
+      setRefreshCountdown(diff);
     }, 1000);
     return () => clearInterval(countdownRef.current);
   }, [nextRefresh]);
@@ -255,14 +264,15 @@ export default function LiveFeedTab() {
       {/* Feed items */}
       {feedItems.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {filtered.map((item, i) => {
-            const isSelected = selectedItem === i;
+          {filtered.map((item) => {
+            const itemKey = (item.title + item.link).slice(0, 120);
+            const isSelected = selectedItemKey === itemKey;
             const classColor = classColors[item.classification] || COLORS.textMuted;
             const catColor = categoryColors[item.category] || COLORS.gold;
             return (
               <div
-                key={i}
-                onClick={() => setSelectedItem(isSelected ? null : i)}
+                key={itemKey}
+                onClick={() => setSelectedItemKey(isSelected ? null : itemKey)}
                 style={{
                   background: isSelected ? `${classColor}08` : COLORS.surface,
                   border: `1px solid ${isSelected ? classColor + "40" : COLORS.border}`,

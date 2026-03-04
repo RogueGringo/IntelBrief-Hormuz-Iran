@@ -11,6 +11,15 @@
  *   4. Auto-refresh on configurable intervals
  */
 
+// ─── TIMEOUT HELPER (compat: Safari <16, older browsers) ─────
+function timeoutSignal(ms) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  // allow GC if signal is not needed
+  controller.signal.addEventListener("abort", () => clearTimeout(id), { once: true });
+  return controller.signal;
+}
+
 // ─── CORS PROXY ROTATION ────────────────────────────────────
 const CORS_PROXIES = [
   (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -22,7 +31,7 @@ async function fetchWithProxyRotation(url, timeoutMs = 10000) {
   for (const makeProxy of CORS_PROXIES) {
     try {
       const resp = await fetch(makeProxy(url), {
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: timeoutSignal(timeoutMs),
       });
       if (!resp.ok) continue;
       const text = await resp.text();

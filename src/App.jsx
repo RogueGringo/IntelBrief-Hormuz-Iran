@@ -1010,9 +1010,9 @@ function SignalMonitorTab() {
             const priceInfo = data.prices[s.id];
             if (!priceInfo || priceInfo.price === undefined) return s;
             const newNumeric = priceInfo.price;
+            // Only brent, wti, ovx, spread, kcposted reach here (all price signals)
             let formatted;
-            if (s.id === "vlcc") formatted = "$" + Math.round(newNumeric).toLocaleString();
-            else if (s.unit === "/bbl" || s.id === "spread") formatted = "$" + newNumeric.toFixed(2);
+            if (s.unit === "/bbl" || s.id === "spread") formatted = "$" + newNumeric.toFixed(2);
             else if (s.unit === "%") formatted = Math.round(newNumeric) + "%";
             else formatted = newNumeric.toFixed(1);
             const newSeverity = computeSeverity(s.id, newNumeric, s.severity);
@@ -1043,7 +1043,7 @@ function SignalMonitorTab() {
         if (s.dataSource === "live" || s.dataSource === "derived") {
           return { ...s, lastUpdate: new Date() };
         }
-        if (!s.jitter || !s.numeric) return { ...s, lastUpdate: new Date() };
+        if (!s.jitter || s.numeric == null) return { ...s, lastUpdate: new Date() };
         const delta = (Math.random() - 0.45) * s.jitter;
         const newNumeric = Math.max(0, s.numeric + delta);
         let formatted;
@@ -1295,7 +1295,6 @@ function SignalMonitorTab() {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
           {filteredSignals.map(s => {
-            const catMeta = CATEGORY_META[s.category];
             return (
               <div key={s.id} style={{
                 padding: "14px 16px", borderRadius: 8,
