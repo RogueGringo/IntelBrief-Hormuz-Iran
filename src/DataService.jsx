@@ -40,6 +40,9 @@ function timeoutSignal(ms) {
 }
 
 // ─── CORS PROXY ROTATION ────────────────────────────────────
+// These are public third-party proxies. All feed URLs are disclosed to each
+// proxy service, and their availability may vary. For production use, consider
+// replacing with a self-hosted proxy (e.g. a small serverless function).
 const CORS_PROXIES = [
   (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
   (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -274,7 +277,7 @@ export async function fetchAllFeeds() {
           ...classifyText(item.title + " " + item.description),
         }));
       } catch (err) {
-        sourceStatus[src.id] = { ok: false, error: err.message };
+        sourceStatus[src.id] = { ok: false, error: err instanceof Error ? err.message : String(err) };
         return [];
       }
     })

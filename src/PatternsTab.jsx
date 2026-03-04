@@ -1,26 +1,17 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { COLORS } from "./theme.js";
 
-const COLORS = {
-  bg: "#0a0c10",
-  surface: "#12151c",
-  surfaceHover: "#1a1e28",
-  border: "#1e2330",
-  borderActive: "#d4a843",
-  gold: "#d4a843",
-  goldDim: "#8a6e2f",
-  goldBright: "#f0c95a",
-  red: "#e04040",
-  redDim: "#8b2020",
-  green: "#3dba6f",
-  greenDim: "#1d6b3a",
-  blue: "#4a8fd4",
-  blueDim: "#2a5580",
-  text: "#e8e4dc",
-  textDim: "#8a8678",
-  textMuted: "#5a5850",
-  orange: "#e08840",
-  purple: "#9070d0",
-};
+// Simple seeded PRNG (mulberry32) — makes transit data deterministic across reloads.
+function makePRNG(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rng = makePRNG(20260101);
 
 // ─── HISTORICAL TRANSIT DATA ─────────────────────────────────
 // Simulated but grounded in real-world Hormuz patterns
@@ -42,16 +33,16 @@ function generateHistoricalTransits() {
 
     if (d < 55) {
       // Normal operations: Jan 1 - Feb 24
-      baseTransits = 135 + Math.round((Math.random() - 0.5) * 20);
-      vlccRate = 22000 + Math.round(Math.random() * 8000);
+      baseTransits = 135 + Math.round((rng() - 0.5) * 20);
+      vlccRate = 22000 + Math.round(rng() * 8000);
       insuranceStatus = "NORMAL";
       pniClubs = 12;
       strandedVessels = 0;
     } else if (d < 58) {
       // Tension escalation: Feb 25-27
       const decay = (d - 54);
-      baseTransits = Math.max(80, 135 - decay * 25 + Math.round((Math.random() - 0.5) * 15));
-      vlccRate = 28000 + decay * 15000 + Math.round(Math.random() * 5000);
+      baseTransits = Math.max(80, 135 - decay * 25 + Math.round((rng() - 0.5) * 15));
+      vlccRate = 28000 + decay * 15000 + Math.round(rng() * 5000);
       insuranceStatus = "ELEVATED RISK";
       pniClubs = 12 - decay;
       strandedVessels = Math.round(decay * 8);
@@ -72,10 +63,10 @@ function generateHistoricalTransits() {
     } else {
       // Mar 2+ — full closure
       baseTransits = 0;
-      vlccRate = 420000 + Math.round(Math.random() * 10000);
+      vlccRate = 420000 + Math.round(rng() * 10000);
       insuranceStatus = "WITHDRAWN";
       pniClubs = 5 - Math.min(d - 59, 2);
-      strandedVessels = 150 + Math.round(Math.random() * 5);
+      strandedVessels = 150 + Math.round(rng() * 5);
     }
 
     // Breakdown by vessel type (approximate proportions)
@@ -98,7 +89,7 @@ function generateHistoricalTransits() {
       insuranceStatus,
       pniClubs,
       strandedVessels,
-      brent: d < 55 ? 71 + Math.random() * 3 : d < 58 ? 74 + (d - 54) * 3 : 83 + Math.random() * 2,
+      brent: d < 55 ? 71 + rng() * 3 : d < 58 ? 74 + (d - 54) * 3 : 83 + rng() * 2,
     });
   }
   return data;
@@ -198,9 +189,10 @@ function TransitChart({ data, width, height, showVesselTypes }) {
   const xLabels = [];
   let lastMonth = -1;
   data.forEach((d, i) => {
-    const month = new Date(d.date).getMonth();
+    const date = new Date(d.date);
+    const month = date.getUTCMonth();
     if (month !== lastMonth) {
-      xLabels.push({ i, label: new Date(d.date).toLocaleDateString("en-US", { month: "short" }) });
+      xLabels.push({ i, label: date.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" }) });
       lastMonth = month;
     }
   });
@@ -372,7 +364,6 @@ export default function PatternsTab() {
   const containerRef = useRef(null);
   const [chartWidth, setChartWidth] = useState(900);
   const [showVesselTypes, setShowVesselTypes] = useState(false);
-  const [selectedDay, setSelectedDay] = useState(null);
   const [view, setView] = useState("transit"); // transit | phase | stack
 
   useEffect(() => {
@@ -390,7 +381,6 @@ export default function PatternsTab() {
 
   // Statistical summary
   const stableData = data.filter(d => d.day < 55);
-  const crisisData = data.filter(d => d.day >= 58);
   const stableMean = stableData.reduce((a, b) => a + b.total, 0) / stableData.length;
   const stableStd = Math.sqrt(stableData.reduce((a, b) => a + (b.total - stableMean) ** 2, 0) / stableData.length);
   const collapseRate = stableMean > 0 ? ((stableMean - 0) / stableMean * 100).toFixed(1) : "100";
@@ -572,7 +562,7 @@ export default function PatternsTab() {
                 }}>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.text }}>
-                      {new Date(ev.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      {new Date(ev.date).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
                     </div>
                     <span style={{
                       fontSize: 8, fontWeight: 700, letterSpacing: 1, padding: "1px 6px",

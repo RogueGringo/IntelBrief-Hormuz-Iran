@@ -1,29 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import LiveFeedTab from "./LiveFeedTab.jsx";
 import PatternsTab from "./PatternsTab.jsx";
-import { fetchCommodityPrices } from "./DataService.jsx";
-
-const COLORS = {
-  bg: "#0a0c10",
-  surface: "#12151c",
-  surfaceHover: "#1a1e28",
-  border: "#1e2330",
-  borderActive: "#d4a843",
-  gold: "#d4a843",
-  goldDim: "#8a6e2f",
-  goldBright: "#f0c95a",
-  red: "#e04040",
-  redDim: "#8b2020",
-  green: "#3dba6f",
-  greenDim: "#1d6b3a",
-  blue: "#4a8fd4",
-  blueDim: "#2a5580",
-  text: "#e8e4dc",
-  textDim: "#8a8678",
-  textMuted: "#5a5850",
-  orange: "#e08840",
-  purple: "#9070d0",
-};
+import { fetchCommodityPrices, classifyText } from "./DataService.jsx";
+import { COLORS } from "./theme.js";
 
 // ─── SIGNAL MONITOR DATA ───────────────────────────────────
 const SIGNALS = [
@@ -72,24 +51,6 @@ const CATEGORY_META = {
   price: { label: "PRICE ARCHITECTURE", color: COLORS.blue },
   domestic: { label: "DOMESTIC SUPPLY", color: COLORS.purple },
 };
-
-const EFFECT_KEYWORDS = [
-  "transit", "ais", "insurance", "p&i", "coverage", "vlcc", "freight",
-  "force majeure", "spr", "drawdown", "rig count", "duc", "backwardation",
-  "pipeline", "bpd", "production", "inventory", "withdrawn", "suspended",
-  "collapsed", "stranded", "utilization", "capacity", "barrels", "tanker",
-  "vessel", "rates", "premium", "reinsurance", "spread", "curve", "netback",
-  "breakeven", "dolomite", "overpressured", "wellbore", "measured", "binary",
-];
-
-const EVENT_KEYWORDS = [
-  "announced", "predicted", "analysts say", "expected", "could", "might",
-  "sources say", "reportedly", "sentiment", "fears", "hopes", "rally",
-  "tumble", "surge", "plunge", "breaking", "rumor", "speculation",
-  "believes", "opinion", "according to", "may", "possibly", "likely",
-  "forecast", "projected", "risk of", "warns", "caution", "concerned",
-  "worried", "optimistic", "pessimistic", "bullish", "bearish", "mood",
-];
 
 // ─── HEADER ────────────────────────────────────────────────
 function Header({ activeTab, setActiveTab }) {
@@ -1074,31 +1035,8 @@ function SignalMonitorTab() {
   // Semantic analyzer
   const analyzeText = useCallback(() => {
     if (!analyzerText.trim()) return;
-    const lower = analyzerText.toLowerCase();
-    const effectHits = EFFECT_KEYWORDS.filter(k => lower.includes(k));
-    const eventHits = EVENT_KEYWORDS.filter(k => lower.includes(k));
-    const totalHits = effectHits.length + eventHits.length;
-    const score = totalHits > 0 ? (effectHits.length - eventHits.length) / totalHits : 0;
-
-    // Map to effect chains
-    const chainMap = [];
-    const insuranceTerms = ["insurance", "p&i", "coverage", "withdrawn", "reinsurance", "premium"];
-    const physicalTerms = ["transit", "ais", "tanker", "vessel", "stranded", "vlcc", "freight", "pipeline"];
-    const priceTerms = ["brent", "wti", "spread", "backwardation", "curve", "netback", "breakeven", "ovx"];
-    const supplyTerms = ["rig count", "duc", "production", "bpd", "capacity", "frac"];
-    if (insuranceTerms.some(t => lower.includes(t))) chainMap.push("Maritime Insurance Cascade");
-    if (physicalTerms.some(t => lower.includes(t))) chainMap.push("Physical Flow Cascade");
-    if (priceTerms.some(t => lower.includes(t))) chainMap.push("Price Architecture Cascade");
-    if (supplyTerms.some(t => lower.includes(t))) chainMap.push("Supply Constraint Cascade");
-
-    setAnalysisResult({
-      classification: score > 0.2 ? "EFFECT" : score < -0.2 ? "EVENT" : "MIXED",
-      score,
-      effectHits,
-      eventHits,
-      chainMap,
-      confidence: totalHits > 0 ? Math.min(100, Math.round((totalHits / 5) * 100)) : 0,
-    });
+    const result = classifyText(analyzerText);
+    setAnalysisResult(result);
   }, [analyzerText]);
 
   const severityColor = (sev) =>
