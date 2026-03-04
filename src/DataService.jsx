@@ -10,12 +10,15 @@
  */
 
 // ─── HF PROXY CONFIGURATION ─────────────────────────────────
-// Set this to your Hugging Face Space URL. The dashboard tries this first.
-const HF_PROXY_URL = (typeof import.meta !== "undefined" && import.meta.env?.VITE_HF_PROXY_URL)
-  || "https://roguegringo-valor-proxy.hf.space";
+// If hosted on the HF Space itself, API is same-origin (/api/*).
+// If hosted on GitHub Pages, reaches out to the HF Space URL.
+const isSameOrigin = typeof window !== "undefined" && window.location.hostname.includes("hf.space");
+const HF_PROXY_URL = isSameOrigin
+  ? ""  // same origin — just call /api/* directly
+  : ((typeof import.meta !== "undefined" && import.meta.env?.VITE_HF_PROXY_URL)
+     || "https://roguegringo-valor-proxy.hf.space");
 
 async function fetchHFProxy(endpoint, timeoutMs = 12000) {
-  if (!HF_PROXY_URL) return null;
   try {
     const resp = await fetch(`${HF_PROXY_URL}${endpoint}`, {
       signal: timeoutSignal(timeoutMs),

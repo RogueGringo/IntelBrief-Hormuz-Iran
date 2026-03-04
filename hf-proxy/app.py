@@ -1,28 +1,30 @@
 """
-Valor Intelligence Proxy — Hugging Face Space backend.
+Valor Intelligence — Full-stack HF Space.
 
-Serves as a CORS-free proxy for the static dashboard:
-  /api/feeds   — Aggregated RSS feeds, classified as effect/event
-  /api/prices  — Real-time commodity prices (Brent, WTI, OVX)
-  /api/health  — Service status
+Serves the dashboard frontend at / and live data at /api/*.
+One URL. One deployment. No CORS. Everything works.
 
-Deploy to HF Spaces (Docker SDK) and point the dashboard at it.
+  /           — The intelligence dashboard (React SPA)
+  /api/feeds  — Aggregated RSS feeds, classified as effect/event
+  /api/prices — Real-time commodity prices (Brent, WTI, OVX)
+  /api/health — Service status
 """
 
 import os
 import time
-import json
 import re
 import math
+from pathlib import Path
 from datetime import datetime, timezone
 
 import feedparser
 import yfinance as yf
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
-app = FastAPI(title="Valor Intelligence Proxy", version="1.0.0")
+app = FastAPI(title="Valor Intelligence", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,6 +32,9 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+# ─── STATIC FRONTEND ─────────────────────────────────────────
+STATIC_DIR = Path(__file__).parent / "static"
 
 # ─── CONFIGURATION ────────────────────────────────────────────
 FEED_SOURCES = [
@@ -261,6 +266,21 @@ async def get_prices():
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+# ─── SERVE FRONTEND (SPA) ─────────────────────────────────────
+if STATIC_DIR.exists():
+    # Serve static assets (JS, CSS, images)
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(request: Request, full_path: str):
+        # Try exact file first (favicon, etc.)
+        file_path = STATIC_DIR / full_path
+        if full_path and file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
+        # Otherwise serve index.html (SPA routing)
+        return FileResponse(STATIC_DIR / "index.html")
 
 
 if __name__ == "__main__":
