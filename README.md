@@ -1,3 +1,12 @@
+---
+title: Hormuz Intel
+emoji: ⚡
+colorFrom: gray
+colorTo: green
+sdk: docker
+pinned: false
+---
+
 # Valor Energy Partners — Strategic Intelligence Brief
 
 ### Strait of Hormuz Crisis | Effects-Based Analysis
