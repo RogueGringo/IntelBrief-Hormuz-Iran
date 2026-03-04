@@ -1,15 +1,32 @@
 /**
  * DataService — Centralized real-time data layer for the intelligence dashboard.
  *
- * Fetches from objective, open-source data feeds. Falls back gracefully
- * when CORS or network constraints block access from a static site.
+ * Data flow (ordered by reliability):
+ *   1. HF_PROXY — Hugging Face Space backend (server-side, no CORS, real yfinance)
+ *   2. CORS proxies — Client-side fallback via public proxy rotation
+ *   3. Scenario data — Hardcoded baseline if all sources fail
  *
- * Strategy:
- *   1. Try real data from public APIs / RSS via multiple CORS proxies
- *   2. Cache results client-side with TTLs
- *   3. Mark every datum with { source: "live" | "cached" | "scenario", fetchedAt }
- *   4. Auto-refresh on configurable intervals
+ * Every datum is tagged: { source: "live" | "cached" | "scenario", fetchedAt }
  */
+
+// ─── HF PROXY CONFIGURATION ─────────────────────────────────
+// Set this to your Hugging Face Space URL. The dashboard tries this first.
+// Example: "https://YOUR-USERNAME-valor-proxy.hf.space"
+const HF_PROXY_URL = (typeof import.meta !== "undefined" && import.meta.env?.VITE_HF_PROXY_URL)
+  || ""; // empty = skip HF proxy, use CORS fallback only
+
+async function fetchHFProxy(endpoint, timeoutMs = 12000) {
+  if (!HF_PROXY_URL) return null;
+  try {
+    const resp = await fetch(`${HF_PROXY_URL}${endpoint}`, {
+      signal: timeoutSignal(timeoutMs),
+    });
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
 
 // ─── TIMEOUT HELPER (compat: Safari <16, older browsers) ─────
 function timeoutSignal(ms) {
@@ -223,6 +240,15 @@ export async function fetchAllFeeds() {
   const cached = getCached(CACHE_KEY, TTL);
   if (cached) return { ...cached, source: "cached" };
 
+  // Strategy 1: HF proxy (server-side, no CORS issues)
+  const hfData = await fetchHFProxy("/api/feeds");
+  if (hfData && hfData.items && hfData.items.length > 0) {
+    const payload = { ...hfData, source: "live" };
+    setCache(CACHE_KEY, payload);
+    return payload;
+  }
+
+  // Strategy 2: Client-side CORS proxy rotation
   const allItems = [];
   const sourceStatus = {};
 
@@ -371,9 +397,17 @@ export async function fetchCommodityPrices() {
   const cached = getCached(CACHE_KEY, TTL);
   if (cached) return { ...cached, source: "cached" };
 
+  // Strategy 1: HF proxy (server-side yfinance — most reliable)
+  const hfData = await fetchHFProxy("/api/prices");
+  if (hfData && hfData.prices && Object.keys(hfData.prices).length > 0) {
+    const payload = { ...hfData, source: "live" };
+    setCache(CACHE_KEY, payload);
+    return payload;
+  }
+
+  // Strategy 2: Client-side scraping via CORS proxies
   const prices = {};
 
-  // Fetch all commodities concurrently, each with its own fallback chain
   await Promise.all(
     Object.entries(PRICE_STRATEGIES).map(async ([id, strategies]) => {
       const result = await fetchPriceWithFallback(strategies);
