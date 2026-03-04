@@ -1,6 +1,7 @@
 FROM node:20-slim AS frontend
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
+ADD https://api.github.com/repos/RogueGringo/IntelBrief-Hormuz-Iran/git/refs/heads/main /tmp/cachebust.json
 RUN git clone --depth 1 https://github.com/RogueGringo/IntelBrief-Hormuz-Iran.git .
 RUN npm ci
 # Build with base=/ since HF Space serves at root
