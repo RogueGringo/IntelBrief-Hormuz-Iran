@@ -4,32 +4,76 @@ import PatternsTab from "./PatternsTab.jsx";
 import { fetchCommodityPrices, classifyText } from "./DataService.jsx";
 import { COLORS } from "./theme.js";
 
-const LIVE_URL = "https://roguegringo.github.io/IntelBrief-Hormuz-Iran/";
+// Upstream sources for independent verification — grouped by tab domain
+const VERIFY_SOURCES = {
+  thesis: [
+    { label: "MarineTraffic — Strait of Hormuz", url: "https://www.marinetraffic.com/en/ais/home/centerx/56.3/centery/26.6/zoom/9" },
+    { label: "International Group of P&I Clubs", url: "https://www.igpandi.org/" },
+    { label: "EIA Short-Term Energy Outlook", url: "https://www.eia.gov/outlooks/steo/" },
+  ],
+  nodes: [
+    { label: "MarineTraffic — Live AIS Map", url: "https://www.marinetraffic.com/en/ais/home/centerx/56.3/centery/26.6/zoom/9" },
+    { label: "International Group of P&I Clubs", url: "https://www.igpandi.org/" },
+    { label: "Baker Hughes Rig Count", url: "https://rigcount.bakerhughes.com/" },
+    { label: "EIA Petroleum Data", url: "https://www.eia.gov/petroleum/data.php" },
+  ],
+  patterns: [
+    { label: "MarineTraffic — Hormuz AIS", url: "https://www.marinetraffic.com/en/ais/home/centerx/56.3/centery/26.6/zoom/9" },
+    { label: "Lloyd's List Intelligence", url: "https://www.lloydslistintelligence.com/" },
+  ],
+  portfolio: [
+    { label: "Yahoo Finance — Brent (BZ=F)", url: "https://finance.yahoo.com/quote/BZ=F/" },
+    { label: "Yahoo Finance — WTI (CL=F)", url: "https://finance.yahoo.com/quote/CL=F/" },
+    { label: "Kansas Geological Survey", url: "https://www.kgs.ku.edu/" },
+    { label: "TX RRC — Pearsall/Eagle Ford", url: "https://www.rrc.texas.gov/oil-and-gas/" },
+  ],
+  playbook: [
+    { label: "EIA Weekly Petroleum Status", url: "https://www.eia.gov/petroleum/supply/weekly/" },
+    { label: "CME Group — NYMEX Crude", url: "https://www.cmegroup.com/markets/energy/crude-oil/light-sweet-crude.html" },
+    { label: "CBOE — OVX (Oil Vol Index)", url: "https://www.cboe.com/tradable_products/vix/ovx/" },
+  ],
+  monitor: [
+    { label: "Yahoo Finance — Brent (BZ=F)", url: "https://finance.yahoo.com/quote/BZ=F/" },
+    { label: "Yahoo Finance — WTI (CL=F)", url: "https://finance.yahoo.com/quote/CL=F/" },
+    { label: "CBOE — OVX", url: "https://www.cboe.com/tradable_products/vix/ovx/" },
+    { label: "Baker Hughes Rig Count", url: "https://rigcount.bakerhughes.com/" },
+  ],
+};
 
-function SourceVerifyLink({ label }) {
+function SourceVerifyLink({ sources }) {
+  if (!sources || sources.length === 0) return null;
   return (
     <div style={{
       marginTop: 28, paddingTop: 16, borderTop: `1px solid ${COLORS.border}`,
-      display: "flex", alignItems: "center", gap: 8,
     }}>
-      <span style={{
-        width: 6, height: 6, borderRadius: "50%", background: COLORS.green,
-        animation: "pulse 2s infinite", flexShrink: 0,
-      }} />
-      <a
-        href={LIVE_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{
-          fontSize: 11, color: COLORS.blue, textDecoration: "none",
-          letterSpacing: 0.3,
-        }}
-      >
-        {label || "Verify live feed"} →
-      </a>
-      <span style={{ fontSize: 10, color: COLORS.textMuted, marginLeft: 4 }}>
-        Real-time data at GitHub Pages deployment
-      </span>
+      <div style={{
+        fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: COLORS.textMuted,
+        marginBottom: 10,
+      }}>
+        VERIFY UPSTREAM SOURCES
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {sources.map((src, i) => (
+          <a
+            key={i}
+            href={src.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "5px 12px", borderRadius: 5, fontSize: 11,
+              background: `${COLORS.blue}10`, border: `1px solid ${COLORS.blue}20`,
+              color: COLORS.blue, textDecoration: "none", letterSpacing: 0.3,
+            }}
+          >
+            <span style={{
+              width: 5, height: 5, borderRadius: "50%", background: COLORS.green,
+              flexShrink: 0,
+            }} />
+            {src.label}
+          </a>
+        ))}
+      </div>
     </div>
   );
 }
@@ -404,7 +448,7 @@ function ThesisTab() {
           <strong style={{ color: COLORS.gold }}> "Are independent systems all telling me the same thing?"</strong>
         </p>
       </div>
-      <SourceVerifyLink label="Verify live thesis data" />
+      <SourceVerifyLink sources={VERIFY_SOURCES.thesis} />
     </div>
   );
 }
@@ -583,7 +627,7 @@ function NodesTab() {
           )}
         </div>
       ))}
-      <SourceVerifyLink label="Verify live tracking nodes" />
+      <SourceVerifyLink sources={VERIFY_SOURCES.nodes} />
     </div>
   );
 }
@@ -783,7 +827,7 @@ function PortfolioTab() {
           </div>
         ))}
       </div>
-      <SourceVerifyLink label="Verify live portfolio data" />
+      <SourceVerifyLink sources={VERIFY_SOURCES.portfolio} />
     </div>
   );
 }
@@ -967,7 +1011,7 @@ function PlaybookTab() {
           the difference between seeing clearly and not seeing at all is the entire game.
         </p>
       </div>
-      <SourceVerifyLink label="Verify live effect chains" />
+      <SourceVerifyLink sources={VERIFY_SOURCES.playbook} />
     </div>
   );
 }
@@ -1445,7 +1489,7 @@ function SignalMonitorTab() {
           </div>
         )}
       </div>
-      <SourceVerifyLink label="Verify live signal monitor" />
+      <SourceVerifyLink sources={VERIFY_SOURCES.monitor} />
     </div>
   );
 }

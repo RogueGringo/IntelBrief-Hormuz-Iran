@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { COLORS } from "./theme.js";
 
-const LIVE_URL = "https://roguegringo.github.io/IntelBrief-Hormuz-Iran/";
+const VERIFY_SOURCES = [
+  { label: "MarineTraffic — Hormuz AIS", url: "https://www.marinetraffic.com/en/ais/home/centerx/56.3/centery/26.6/zoom/9" },
+  { label: "Lloyd's List Intelligence", url: "https://www.lloydslistintelligence.com/" },
+];
 
 // Simple seeded PRNG (mulberry32) — makes transit data deterministic across reloads.
 function makePRNG(seed) {
@@ -740,22 +743,23 @@ export default function PatternsTab() {
           </p>
         </div>
       </div>
-      <div style={{
-        marginTop: 28, paddingTop: 16, borderTop: `1px solid ${COLORS.border}`,
-        display: "flex", alignItems: "center", gap: 8,
-      }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: "50%", background: COLORS.green,
-          animation: "pulse 2s infinite", flexShrink: 0,
-        }} />
-        <a href={LIVE_URL} target="_blank" rel="noopener noreferrer" style={{
-          fontSize: 11, color: COLORS.blue, textDecoration: "none", letterSpacing: 0.3,
-        }}>
-          Verify live patterns data →
-        </a>
-        <span style={{ fontSize: 10, color: COLORS.textMuted, marginLeft: 4 }}>
-          Real-time data at GitHub Pages deployment
-        </span>
+      <div style={{ marginTop: 28, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: COLORS.textMuted, marginBottom: 10 }}>
+          VERIFY UPSTREAM SOURCES
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {VERIFY_SOURCES.map((src, i) => (
+            <a key={i} href={src.url} target="_blank" rel="noopener noreferrer" style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "5px 12px", borderRadius: 5, fontSize: 11,
+              background: `${COLORS.blue}10`, border: `1px solid ${COLORS.blue}20`,
+              color: COLORS.blue, textDecoration: "none", letterSpacing: 0.3,
+            }}>
+              <span style={{ width: 5, height: 5, borderRadius: "50%", background: COLORS.green, flexShrink: 0 }} />
+              {src.label}
+            </a>
+          ))}
+        </div>
       </div>
     </div>
   );

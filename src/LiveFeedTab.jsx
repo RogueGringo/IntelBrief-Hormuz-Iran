@@ -2,7 +2,13 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchAllFeeds, FEED_SOURCES } from "./DataService.jsx";
 import { COLORS } from "./theme.js";
 
-const LIVE_URL = "https://roguegringo.github.io/IntelBrief-Hormuz-Iran/";
+const VERIFY_SOURCES = [
+  { label: "Google News — Hormuz", url: "https://news.google.com/search?q=strait%20of%20hormuz%20oil%20tanker" },
+  { label: "EIA — This Week in Petroleum", url: "https://www.eia.gov/petroleum/weekly/" },
+  { label: "gCaptain — Maritime News", url: "https://gcaptain.com/" },
+  { label: "The Maritime Executive", url: "https://maritime-executive.com/" },
+  { label: "OilPrice.com", url: "https://oilprice.com/" },
+];
 
 const REFRESH_INTERVAL = 3 * 60 * 1000; // 3 minutes
 
@@ -430,22 +436,23 @@ export default function LiveFeedTab() {
           })}
         </div>
       </div>
-      <div style={{
-        marginTop: 28, paddingTop: 16, borderTop: `1px solid ${COLORS.border}`,
-        display: "flex", alignItems: "center", gap: 8,
-      }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: "50%", background: COLORS.green,
-          animation: "pulse 2s infinite", flexShrink: 0,
-        }} />
-        <a href={LIVE_URL} target="_blank" rel="noopener noreferrer" style={{
-          fontSize: 11, color: COLORS.blue, textDecoration: "none", letterSpacing: 0.3,
-        }}>
-          Verify live intelligence feed →
-        </a>
-        <span style={{ fontSize: 10, color: COLORS.textMuted, marginLeft: 4 }}>
-          Real-time data at GitHub Pages deployment
-        </span>
+      <div style={{ marginTop: 28, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: COLORS.textMuted, marginBottom: 10 }}>
+          VERIFY UPSTREAM SOURCES
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {VERIFY_SOURCES.map((src, i) => (
+            <a key={i} href={src.url} target="_blank" rel="noopener noreferrer" style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "5px 12px", borderRadius: 5, fontSize: 11,
+              background: `${COLORS.blue}10`, border: `1px solid ${COLORS.blue}20`,
+              color: COLORS.blue, textDecoration: "none", letterSpacing: 0.3,
+            }}>
+              <span style={{ width: 5, height: 5, borderRadius: "50%", background: COLORS.green, flexShrink: 0 }} />
+              {src.label}
+            </a>
+          ))}
+        </div>
       </div>
     </div>
   );
