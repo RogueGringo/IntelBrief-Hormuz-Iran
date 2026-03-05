@@ -1,0 +1,20 @@
+[project]
+name = "sovereign-dashboard-backend"
+version = "2.0.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.104",
+    "uvicorn>=0.24",
+    "python-multipart>=0.0.6",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "scikit-learn>=1.3",
+]
+
+[project.optional-dependencies]
+llm = ["llama-cpp-python>=0.2.50"]
+dev = ["pytest>=7.0", "httpx>=0.25", "pytest-asyncio>=0.23"]
+all = ["sovereign-dashboard-backend[llm,dev]"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
