@@ -156,10 +156,16 @@ export default function SessionFeedTab() {
     return () => clearInterval(timer);
   }, [loadSwings, checkHealth]);
 
+  const [uploadProgress, setUploadProgress] = useState(null); // { done, total }
+
   const handleFiles = useCallback(async (files) => {
-    for (const file of files) {
-      await ingestSwing(file);
+    const total = files.length;
+    setUploadProgress({ done: 0, total });
+    for (let i = 0; i < files.length; i++) {
+      await ingestSwing(files[i]);
+      if (mountedRef.current) setUploadProgress({ done: i + 1, total });
     }
+    setUploadProgress(null);
     const updated = await fetchSwings();
     if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
   }, []);
@@ -287,8 +293,15 @@ export default function SessionFeedTab() {
           Drop CSV files here or click to upload
         </div>
         <div style={{ fontSize: 11, color: COLORS.textMuted }}>
-          Files will be ingested into the motion pipeline
+          {uploadProgress
+            ? `Uploading ${uploadProgress.done}/${uploadProgress.total}...`
+            : 'Files will be ingested and auto-analyzed'}
         </div>
+        {uploadProgress && (
+          <div style={{ width: 200, height: 4, background: COLORS.border, borderRadius: 2, margin: '8px auto 0', overflow: 'hidden' }}>
+            <div style={{ width: `${(uploadProgress.done / uploadProgress.total) * 100}%`, height: '100%', background: COLORS.green, borderRadius: 2, transition: 'width 0.3s' }} />
+          </div>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -301,6 +314,30 @@ export default function SessionFeedTab() {
           }}
         />
       </div>
+
+      {/* Export bar */}
+      {swings.length > 0 && (
+        <div style={{
+          display: 'flex', gap: 8, marginBottom: 16, padding: '8px 14px',
+          background: `${COLORS.blue}08`, border: `1px solid ${COLORS.blue}20`, borderRadius: 8,
+          alignItems: 'center',
+        }}>
+          <span style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 1, marginRight: 4 }}>EXPORT</span>
+          <button
+            onClick={() => { window.open('/api/export/csv', '_blank'); }}
+            style={{
+              padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+              cursor: 'pointer', background: `${COLORS.blue}15`,
+              border: `1px solid ${COLORS.blue}40`, color: COLORS.blue,
+            }}
+          >
+            All Sessions CSV
+          </button>
+          <span style={{ fontSize: 9, color: COLORS.textMuted, marginLeft: 'auto' }}>
+            {swings.length} session{swings.length !== 1 ? 's' : ''} + {Object.keys(swings[0]?.features || {}).length || '91'} features
+          </span>
+        </div>
+      )}
 
       {/* Session Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
@@ -343,8 +380,27 @@ export default function SessionFeedTab() {
             {f}
           </button>
         ))}
+        {swings.some(s => s.status === 'ingested') && (
+          <button onClick={async () => {
+            const unanalyzed = swings.filter(s => s.status === 'ingested');
+            for (const s of unanalyzed) {
+              setActionLoading(prev => ({ ...prev, [s.id]: 'analyzing' }));
+              try { await analyzeSwing(s.id); } catch (e) { console.error(e); }
+              if (mountedRef.current) setActionLoading(prev => ({ ...prev, [s.id]: null }));
+            }
+            const updated = await fetchSwings();
+            if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
+          }} style={{
+            marginLeft: 'auto', padding: '6px 14px', borderRadius: 5, fontSize: 10,
+            fontWeight: 700, letterSpacing: 1, cursor: 'pointer',
+            background: `${COLORS.green}15`, border: `1px solid ${COLORS.green}40`, color: COLORS.green,
+          }}>
+            ANALYZE ALL ({swings.filter(s => s.status === 'ingested').length})
+          </button>
+        )}
         <button onClick={loadSwings} style={{
-          marginLeft: 'auto', padding: '6px 14px', borderRadius: 5, fontSize: 10,
+          marginLeft: swings.some(s => s.status === 'ingested') ? 0 : 'auto',
+          padding: '6px 14px', borderRadius: 5, fontSize: 10,
           fontWeight: 700, letterSpacing: 1, cursor: 'pointer',
           background: `${COLORS.gold}15`, border: `1px solid ${COLORS.gold}40`, color: COLORS.gold,
         }}>

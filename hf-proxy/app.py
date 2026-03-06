@@ -715,6 +715,61 @@ async def get_stats():
     }
 
 
+@app.get("/api/export/csv")
+async def export_csv():
+    """Export all sessions as a flat CSV for data analysis."""
+    import io
+    import csv
+
+    all_swings = store.list_all()
+    if not all_swings:
+        return JSONResponse({"error": "No sessions to export"}, status_code=404)
+
+    # Collect all feature keys across sessions
+    feature_keys = set()
+    records = []
+    for summary in all_swings:
+        record = store.load(summary["id"])
+        if record:
+            records.append(record)
+            if record.features:
+                feature_keys.update(record.features.keys())
+
+    feature_keys = sorted(feature_keys)
+
+    # Build CSV
+    output = io.StringIO()
+    base_cols = ["id", "filename", "status", "classification", "confidence",
+                 "betti_0", "betti_1", "total_persistence", "n_phases"]
+    writer = csv.writer(output)
+    writer.writerow(base_cols + feature_keys)
+
+    for r in records:
+        topo = r.topology or {}
+        phases = topo.get("phases", {})
+        row = [
+            r.swing_id,
+            r.filename,
+            r.status,
+            r.classification,
+            r.classification_confidence,
+            topo.get("betti_0", topo.get("persistence", {}).get("betti_0")),
+            topo.get("betti_1", topo.get("persistence", {}).get("betti_1")),
+            topo.get("total_persistence"),
+            len(phases.get("phases", [])),
+        ]
+        feat = r.features or {}
+        row.extend(feat.get(k) for k in feature_keys)
+        writer.writerow(row)
+
+    from starlette.responses import Response
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=sovereign_motion_export.csv"},
+    )
+
+
 @app.get("/api/swing/{swing_id}/report")
 async def get_swing_report(swing_id: str):
     """Generate a comprehensive analysis report for a session."""
