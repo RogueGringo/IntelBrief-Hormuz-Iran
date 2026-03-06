@@ -794,20 +794,19 @@ export default function SessionFeedTab() {
                   onClick={(e) => e.stopPropagation()}
                 >
                   <button
-                    disabled={!!swing.classification || isAnalyzing}
+                    disabled={isAnalyzing}
                     onClick={() => handleAnalyze(id)}
                     style={{
                       padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
-                      cursor: swing.classification || isAnalyzing ? 'not-allowed' : 'pointer',
+                      cursor: isAnalyzing ? 'not-allowed' : 'pointer',
                       background: swing.classification
                         ? `${COLORS.textMuted}10`
                         : `${COLORS.green}15`,
                       border: `1px solid ${swing.classification ? COLORS.textMuted + '30' : COLORS.green + '40'}`,
                       color: swing.classification ? COLORS.textMuted : COLORS.green,
-                      opacity: swing.classification ? 0.5 : 1,
                     }}
                   >
-                    {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+                    {isAnalyzing ? 'Analyzing...' : swing.classification ? 'Re-analyze' : 'Analyze'}
                   </button>
                   <button
                     disabled={isCoaching}
