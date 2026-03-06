@@ -921,6 +921,76 @@ async def update_settings(request: Request):
     return {"status": "saved", "settings": current}
 
 
+@app.get("/api/anomalies")
+async def get_anomalies():
+    """Detect sessions that deviate significantly from the baseline."""
+    all_swings = store.list_all()
+    analyzed = []
+    for summary in all_swings:
+        record = store.load(summary["id"])
+        if record and record.status == "analyzed":
+            analyzed.append(record)
+    if len(analyzed) < 3:
+        return {"anomalies": [], "message": "Need at least 3 sessions for anomaly detection"}
+
+    # Build baseline stats (mean, std) for key metrics
+    metrics_keys = ["peak_accel_magnitude", "duration_s", "sample_rate_hz", "data_quality_score"]
+    topo_keys = ["total_persistence", "betti_0", "betti_1"]
+    baselines: dict[str, dict] = {}
+    for key in metrics_keys:
+        vals = [r.features.get(key) for r in analyzed if r.features and r.features.get(key) is not None]
+        if len(vals) >= 2:
+            mean = sum(vals) / len(vals)
+            std = (sum((v - mean) ** 2 for v in vals) / (len(vals) - 1)) ** 0.5
+            baselines[key] = {"mean": mean, "std": max(std, 1e-9)}
+    for key in topo_keys:
+        vals = []
+        for r in analyzed:
+            t = r.topology or {}
+            v = t.get(key, t.get("persistence", {}).get(key))
+            if v is not None:
+                vals.append(v)
+        if len(vals) >= 2:
+            mean = sum(vals) / len(vals)
+            std = (sum((v - mean) ** 2 for v in vals) / (len(vals) - 1)) ** 0.5
+            baselines[key] = {"mean": mean, "std": max(std, 1e-9)}
+
+    # Check each session for anomalies (z-score > 2)
+    anomalies = []
+    threshold = 2.0
+    for record in analyzed:
+        deviations = []
+        feat = record.features or {}
+        topo = record.topology or {}
+        for key, bl in baselines.items():
+            if key in metrics_keys:
+                val = feat.get(key)
+            else:
+                val = topo.get(key, topo.get("persistence", {}).get(key))
+            if val is None:
+                continue
+            z = abs(val - bl["mean"]) / bl["std"]
+            if z > threshold:
+                deviations.append({
+                    "metric": key,
+                    "value": round(val, 4),
+                    "mean": round(bl["mean"], 4),
+                    "std": round(bl["std"], 4),
+                    "z_score": round(z, 2),
+                    "direction": "high" if val > bl["mean"] else "low",
+                })
+        if deviations:
+            anomalies.append({
+                "id": record.id,
+                "filename": record.filename,
+                "classification": record.classification,
+                "deviations": deviations,
+                "severity": max(d["z_score"] for d in deviations),
+            })
+    anomalies.sort(key=lambda a: a["severity"], reverse=True)
+    return {"anomalies": anomalies, "baselines": {k: {"mean": round(v["mean"], 4), "std": round(v["std"], 4)} for k, v in baselines.items()}}
+
+
 @app.get("/api/trends")
 async def get_trends():
     """Per-session metrics in chronological order for trend charting."""

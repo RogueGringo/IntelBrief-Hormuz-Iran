@@ -186,6 +186,21 @@ export async function fetchTrends() {
   }
 }
 
+export async function fetchAnomalies() {
+  const cached = getCached('anomalies', 30000);
+  if (cached) return cached;
+  try {
+    const resp = await fetch(`${API_BASE}/api/anomalies`);
+    if (!resp.ok) return { anomalies: [], baselines: {} };
+    const data = await resp.json();
+    setCache('anomalies', data);
+    return data;
+  } catch (e) {
+    console.error('fetchAnomalies failed:', e);
+    return { anomalies: [], baselines: {} };
+  }
+}
+
 export async function getHealth() {
   try {
     const resp = await fetch(`${API_BASE}/api/health`);

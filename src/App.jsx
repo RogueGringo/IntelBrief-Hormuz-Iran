@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentDashboard, compareSwings, swapModel, triggerDistill, triggerAgentLoop } from './DataService.jsx';
+import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentDashboard, compareSwings, swapModel, triggerDistill, triggerAgentLoop, fetchAnomalies } from './DataService.jsx';
 import { COLORS, CATEGORY_COLORS, CLASS_COLORS } from "./theme.js";
 import MotionPatternsTab from './PatternsTab.jsx';
 import SessionFeedTab from './LiveFeedTab.jsx';
@@ -1724,6 +1724,14 @@ function StatusBar() {
 export default function App() {
   const [activeTab, setActiveTab] = useState('thesis');
   const [showHelp, setShowHelp] = useState(false);
+  const [anomalies, setAnomalies] = useState([]);
+  const [anomalyDismissed, setAnomalyDismissed] = useState(false);
+
+  useEffect(() => {
+    fetchAnomalies().then(data => {
+      if (data.anomalies?.length) setAnomalies(data.anomalies);
+    });
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1782,6 +1790,34 @@ export default function App() {
               Press <kbd style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 3, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace' }}>?</kbd> or <kbd style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 3, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace' }}>Esc</kbd> to close
             </div>
           </div>
+        </div>
+      )}
+      {/* Anomaly Alert Banner */}
+      {anomalies.length > 0 && !anomalyDismissed && (
+        <div style={{
+          background: `${COLORS.red}15`, borderBottom: `1px solid ${COLORS.red}30`,
+          padding: '8px 32px', display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <span style={{ fontSize: 16 }}>&#9888;</span>
+          <span style={{ fontSize: 11, color: COLORS.red, fontWeight: 600, letterSpacing: 0.5 }}>
+            {anomalies.length} ANOMAL{anomalies.length === 1 ? 'Y' : 'IES'} DETECTED
+          </span>
+          <span style={{ fontSize: 10, color: COLORS.textDim }}>
+            {anomalies.slice(0, 3).map(a => `${a.filename} (z=${a.severity})`).join(', ')}
+            {anomalies.length > 3 ? ` +${anomalies.length - 3} more` : ''}
+          </span>
+          <button
+            onClick={() => setActiveTab('progress')}
+            style={{ marginLeft: 'auto', padding: '3px 10px', fontSize: 9, fontWeight: 700, letterSpacing: 0.5, border: `1px solid ${COLORS.red}40`, borderRadius: 3, background: 'transparent', color: COLORS.red, cursor: 'pointer' }}
+          >
+            VIEW
+          </button>
+          <button
+            onClick={() => setAnomalyDismissed(true)}
+            style={{ padding: '3px 8px', fontSize: 11, border: 'none', background: 'transparent', color: COLORS.textMuted, cursor: 'pointer' }}
+          >
+            &#10005;
+          </button>
         </div>
       )}
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
