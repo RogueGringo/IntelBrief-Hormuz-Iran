@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { fetchSwings, fetchSwing } from './DataService.jsx';
+import { fetchSwings, fetchSwing, fetchBaselines } from './DataService.jsx';
 import { COLORS } from './theme.js';
 
 const PALETTE = [
@@ -10,17 +10,29 @@ const PALETTE = [
 export default function MotionPatternsTab() {
   const [swings, setSwings] = useState([]);
   const [topoSwings, setTopoSwings] = useState([]);
+  const [baselineCount, setBaselineCount] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const allSwings = await fetchSwings();
-      setSwings(Array.isArray(allSwings) ? allSwings : []);
+      const [allSwings, baselines] = await Promise.all([
+        fetchSwings(),
+        fetchBaselines(),
+      ]);
+
+      const swingList = Array.isArray(allSwings) ? allSwings : [];
+      setSwings(swingList);
+
+      if (baselines && !baselines.error) {
+        setBaselineCount(Array.isArray(baselines) ? baselines.length : 0);
+      } else {
+        setBaselineCount(0);
+      }
 
       // Fetch full details for each swing to get topology data
       const detailed = await Promise.all(
-        (Array.isArray(allSwings) ? allSwings : []).map(s => fetchSwing(s.id))
+        swingList.map(s => fetchSwing(s.id))
       );
       const withTopo = detailed.filter(
         s => s && s.topology && s.topology.persistence && s.topology.persistence.pairs
@@ -76,7 +88,7 @@ export default function MotionPatternsTab() {
         {[
           { label: 'SWINGS ANALYZED', value: loading ? '...' : totalSwings },
           { label: 'WITH TOPOLOGY', value: loading ? '...' : swingsWithTopo },
-          { label: 'BASELINES', value: 0 },
+          { label: 'BASELINES', value: loading ? '...' : (baselineCount ?? 0) },
         ].map((card, i) => (
           <div key={i} style={{
             ...cardStyle,

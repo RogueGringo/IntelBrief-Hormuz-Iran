@@ -40,7 +40,7 @@ app.add_middleware(
 
 # ─── PATHS ────────────────────────────────────────────────────
 STATIC_DIR = Path(__file__).parent / "static"
-SOVEREIGN_LIB = Path(r"C:\Claude\New folder\sovereign-lib")
+SOVEREIGN_LIB = Path(os.environ.get("SOVEREIGN_LIB_PATH", Path(__file__).parent.parent / "sovereign-lib"))
 DATA_DIR = Path(__file__).parent / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 BASELINE_DIR = DATA_DIR / "baselines"
@@ -58,6 +58,7 @@ IMUTimeSeries = None
 extract_imu_features = None
 GolfPhaseDetector = None
 encode_motion = None
+sovereign_lib_available = False
 
 try:
     sys.path.insert(0, str(SOVEREIGN_LIB))
@@ -65,8 +66,10 @@ try:
     from sovereign_motion.features import extract_imu_features
     from sovereign_motion.phase_detect import GolfPhaseDetector
     from sovereign_topo.encode import encode_motion
-except ImportError:
-    pass
+    sovereign_lib_available = True
+except ImportError as e:
+    import logging
+    logging.getLogger("app").warning(f"sovereign-lib not available: {e}")
 
 # ─── 20 MOTION QUALITY SIGNALS ───────────────────────────────
 SIGNALS = [
@@ -133,7 +136,7 @@ def classify_text(text: str) -> dict[str, Any]:
     if total == 0:
         return {"classification": "unknown", "confidence": 0.0, "clean_hits": [], "noisy_hits": []}
     score = (len(clean_hits) - len(noisy_hits)) / total
-    classification = "clean" if score > 0.2 else ("noisy" if score < -0.2 else "mixed")
+    classification = "clean" if score > 0.15 else ("noisy" if score < -0.15 else "mixed")
     confidence = min(1.0, total / 6.0)
     return {
         "classification": classification,
@@ -173,7 +176,7 @@ async def health():
     return {
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "sovereign_lib": SOVEREIGN_LIB.exists(),
+        "sovereign_lib": sovereign_lib_available,
         "llm_gpu": llm.gpu_slot is not None,
         "llm_cpu": llm.cpu_slot is not None,
     }
@@ -185,6 +188,66 @@ async def ingest(file: UploadFile = File(...), ground_truth: str = Form("{}")):
     swing_id = store.create_id()
     save_path = UPLOAD_DIR / f"{swing_id}_{file.filename}"
     content = await file.read()
+
+    # ── CSV validation ──
+    EXPECTED_COLUMNS = {
+        "timestamp_us", "accel_x_mg", "accel_y_mg", "accel_z_mg",
+        "gyro_x_mdps", "gyro_y_mdps", "gyro_z_mdps",
+    }
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return JSONResponse(
+            {"error": "File is not valid UTF-8 text"},
+            status_code=400,
+        )
+
+    # Find the first non-comment line as the header
+    header_line = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            header_line = stripped
+            break
+
+    if header_line is None:
+        return JSONResponse(
+            {"error": "CSV file contains no data rows"},
+            status_code=400,
+        )
+
+    csv_columns = {col.strip() for col in header_line.split(",")}
+    missing = EXPECTED_COLUMNS - csv_columns
+    if missing:
+        return JSONResponse(
+            {
+                "error": f"CSV missing required columns: {sorted(missing)}",
+                "expected": sorted(EXPECTED_COLUMNS),
+                "found": sorted(csv_columns),
+            },
+            status_code=400,
+        )
+
+    # ── Parse header/footer comment metadata ──
+    session_meta: dict[str, Any] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# device=") or stripped.startswith("#device="):
+            # Header: # device=PROTEUS1,rate=500,session=0001,mode=threshold
+            parts = stripped.lstrip("# ").split(",")
+            for part in parts:
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    session_meta[k.strip()] = v.strip()
+        elif stripped.startswith("# end ") or stripped.startswith("#end "):
+            # Footer: # end session=0001,samples=1359,duration=1.63
+            after_end = stripped.split("end", 1)[1].strip()
+            parts = after_end.split(",")
+            for part in parts:
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    session_meta[k.strip()] = v.strip()
+
     save_path.write_bytes(content)
 
     try:
@@ -197,9 +260,16 @@ async def ingest(file: UploadFile = File(...), ground_truth: str = Form("{}")):
         filename=file.filename or "unknown.csv",
         ground_truth=gt,
         status="ingested",
+        session_meta=session_meta if session_meta else None,
     )
     store.save(record)
-    return {"id": swing_id, "filename": file.filename, "status": "ingested", "size": len(content)}
+    return {
+        "id": swing_id,
+        "filename": file.filename,
+        "status": "ingested",
+        "size": len(content),
+        "session_meta": session_meta if session_meta else None,
+    }
 
 
 # ─── FEATURE EXTRACTION ──────────────────────────────────────
@@ -405,7 +475,12 @@ Ground Truth: {json.dumps(record.ground_truth, indent=2)}
 Provide specific, actionable coaching advice:"""
 
     try:
-        notes = llm.infer_gpu(prompt, max_tokens=512)
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(llm.infer_gpu, prompt, 512)
+            notes = future.result(timeout=30)
+    except concurrent.futures.TimeoutError:
+        notes = "(LLM inference timed out after 30s)"
     except RuntimeError:
         notes = "(No LLM model loaded — load a GPU model first)"
 
@@ -441,7 +516,7 @@ async def agent_dashboard():
         "swing_count": len(all_swings),
         "status_breakdown": status_counts,
         "llm": {"gpu_loaded": llm_s.gpu_loaded, "cpu_loaded": llm_s.cpu_loaded},
-        "sovereign_lib_available": SOVEREIGN_LIB.exists(),
+        "sovereign_lib_available": sovereign_lib_available,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -488,7 +563,12 @@ Focus on common patterns and prioritize the most impactful improvements.
 Curriculum:"""
 
     try:
-        curriculum = llm.infer_cpu(prompt, max_tokens=1024)
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(llm.infer_cpu, prompt, 1024)
+            curriculum = future.result(timeout=30)
+    except concurrent.futures.TimeoutError:
+        curriculum = "(LLM inference timed out after 30s)"
     except RuntimeError:
         curriculum = "(No CPU model loaded — load a CPU model for batch distillation)"
 

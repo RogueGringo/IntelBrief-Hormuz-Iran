@@ -18,6 +18,7 @@ class SwingRecord:
     classification: str | None = None
     classification_confidence: float = 0.0
     coaching_notes: str | None = None
+    session_meta: dict[str, Any] | None = None
     status: str = "ingested"
 
     def to_dict(self) -> dict[str, Any]:

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchSwings, fetchSwing, ingestSwing, analyzeSwing, coachSwing, classifyText } from './DataService.jsx';
+import { fetchSwings, ingestSwing, analyzeSwing, coachSwing, getHealth } from './DataService.jsx';
 import { COLORS, CLASS_COLORS } from './theme.js';
 
 const REFRESH_INTERVAL = 30000; // 30 seconds
@@ -15,6 +15,8 @@ const STATUS_COLORS = {
 export default function SessionFeedTab() {
   const [swings, setSwings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [backendError, setBackendError] = useState(null);
+  const [backendOnline, setBackendOnline] = useState(null);
   const [classFilter, setClassFilter] = useState('ALL');
   const [expandedSwing, setExpandedSwing] = useState(null);
   const [actionLoading, setActionLoading] = useState({});
@@ -26,22 +28,32 @@ export default function SessionFeedTab() {
     return () => { mountedRef.current = false; };
   }, []);
 
+  const checkHealth = useCallback(async () => {
+    const health = await getHealth();
+    if (mountedRef.current) setBackendOnline(health.ok);
+  }, []);
+
   const loadSwings = useCallback(async () => {
-    try {
-      const data = await fetchSwings();
-      if (mountedRef.current) setSwings(Array.isArray(data) ? data : []);
-    } catch {
-      // keep existing
+    const data = await fetchSwings();
+    if (!mountedRef.current) return;
+    if (data && data.error) {
+      setBackendError(data.message);
+      setBackendOnline(false);
+    } else {
+      setBackendError(null);
+      setBackendOnline(true);
+      setSwings(Array.isArray(data) ? data : []);
     }
-    if (mountedRef.current) setLoading(false);
+    setLoading(false);
   }, []);
 
   // Initial fetch + auto-refresh every 30s
   useEffect(() => {
+    checkHealth();
     loadSwings();
     const timer = setInterval(loadSwings, REFRESH_INTERVAL);
     return () => clearInterval(timer);
-  }, [loadSwings]);
+  }, [loadSwings, checkHealth]);
 
   const handleFiles = useCallback(async (files) => {
     for (const file of files) {
@@ -101,6 +113,54 @@ export default function SessionFeedTab() {
           Auto-refreshes every 30 seconds.
         </p>
       </div>
+
+      {/* Connection Status */}
+      {backendOnline !== null && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '8px 14px', marginBottom: 16, borderRadius: 6,
+          background: backendOnline ? `${COLORS.green}10` : `${COLORS.red}10`,
+          border: `1px solid ${backendOnline ? COLORS.green + '30' : COLORS.red + '30'}`,
+        }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: backendOnline ? COLORS.green : COLORS.red,
+          }} />
+          <span style={{ fontSize: 11, color: backendOnline ? COLORS.green : COLORS.red, fontWeight: 600 }}>
+            {backendOnline ? 'Backend online' : 'Backend offline'}
+          </span>
+          {backendError && (
+            <span style={{ fontSize: 11, color: COLORS.textMuted, marginLeft: 8 }}>
+              {backendError}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Error state with retry */}
+      {backendError && !loading && (
+        <div style={{
+          textAlign: 'center', padding: 40, marginBottom: 20,
+          background: `${COLORS.red}08`, border: `1px solid ${COLORS.red}25`, borderRadius: 12,
+        }}>
+          <div style={{ fontSize: 14, color: COLORS.red, marginBottom: 8, fontWeight: 600 }}>
+            Backend offline
+          </div>
+          <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 16 }}>
+            {backendError}
+          </div>
+          <button
+            onClick={() => { setLoading(true); setBackendError(null); loadSwings(); }}
+            style={{
+              padding: '8px 24px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+              letterSpacing: 1, cursor: 'pointer',
+              background: `${COLORS.gold}15`, border: `1px solid ${COLORS.gold}40`, color: COLORS.gold,
+            }}
+          >
+            RETRY
+          </button>
+        </div>
+      )}
 
       {/* Upload Area */}
       <div

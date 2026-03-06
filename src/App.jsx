@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentDashboard, compareSwings, swapModel, triggerDistill, triggerAgentLoop, classifyText } from './DataService.jsx';
+import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentDashboard, compareSwings, swapModel, triggerDistill, triggerAgentLoop } from './DataService.jsx';
 import { COLORS, CATEGORY_COLORS, CLASS_COLORS } from "./theme.js";
 import MotionPatternsTab from './PatternsTab.jsx';
 import SessionFeedTab from './LiveFeedTab.jsx';
@@ -1034,8 +1034,6 @@ function TopologyChainsTab() {
 function SignalMonitorTab() {
   const [signalData, setSignalData] = useState({ signals: [], categories: {} });
   const [filter, setFilter] = useState('all');
-  const [analyzerText, setAnalyzerText] = useState('');
-  const [analysisResult, setAnalysisResult] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -1047,11 +1045,6 @@ function SignalMonitorTab() {
     const interval = setInterval(load, 5000);
     return () => { active = false; clearInterval(interval); };
   }, []);
-
-  const handleAnalyze = useCallback(() => {
-    if (!analyzerText.trim()) return;
-    setAnalysisResult(classifyText(analyzerText));
-  }, [analyzerText]);
 
   const signals = signalData.signals || [];
   const filtered = filter === 'all' ? signals : signals.filter(s => s.category === filter);
@@ -1152,7 +1145,7 @@ function SignalMonitorTab() {
         })}
       </div>
 
-      {/* Semantic Signal Analyzer */}
+      {/* Semantic Signal Analyzer — classification is handled by backend */}
       <div style={{
         background: COLORS.surface,
         border: `1px solid ${COLORS.border}`,
@@ -1162,78 +1155,9 @@ function SignalMonitorTab() {
         <h3 style={{ color: COLORS.gold, fontSize: 13, fontWeight: 700, letterSpacing: 2, margin: '0 0 14px' }}>
           SEMANTIC SIGNAL ANALYZER
         </h3>
-        <textarea
-          value={analyzerText}
-          onChange={e => setAnalyzerText(e.target.value)}
-          rows={4}
-          placeholder="Paste motion data notes for classification..."
-          style={{
-            width: '100%',
-            background: COLORS.bg,
-            border: `1px solid ${COLORS.border}`,
-            borderRadius: 4,
-            color: COLORS.text,
-            fontSize: 13,
-            padding: '10px 12px',
-            resize: 'vertical',
-            fontFamily: 'inherit',
-            boxSizing: 'border-box',
-          }}
-        />
-        <button
-          onClick={handleAnalyze}
-          style={{
-            marginTop: 10,
-            padding: '8px 24px',
-            background: `${COLORS.gold}20`,
-            border: `1px solid ${COLORS.gold}`,
-            borderRadius: 4,
-            color: COLORS.gold,
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: 1.5,
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-          }}
-        >
-          Analyze
-        </button>
-
-        {analysisResult && (
-          <div style={{
-            marginTop: 16,
-            padding: '14px 16px',
-            background: COLORS.bg,
-            border: `1px solid ${COLORS.border}`,
-            borderRadius: 4,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 16,
-            flexWrap: 'wrap',
-          }}>
-            <span style={{
-              padding: '4px 12px',
-              borderRadius: 4,
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: 1,
-              background: `${CLASS_COLORS[analysisResult.classification] || COLORS.textMuted}20`,
-              color: CLASS_COLORS[analysisResult.classification] || COLORS.textMuted,
-              border: `1px solid ${CLASS_COLORS[analysisResult.classification] || COLORS.textMuted}40`,
-            }}>
-              {analysisResult.classification}
-            </span>
-            <span style={{ color: COLORS.textDim, fontSize: 12 }}>
-              Confidence: <span style={{ color: COLORS.text, fontWeight: 700 }}>{analysisResult.confidence}%</span>
-            </span>
-            <span style={{ color: COLORS.textDim, fontSize: 12 }}>
-              Clean: <span style={{ color: COLORS.green, fontWeight: 700 }}>{analysisResult.cleanHits}</span>
-            </span>
-            <span style={{ color: COLORS.textDim, fontSize: 12 }}>
-              Noisy: <span style={{ color: COLORS.red, fontWeight: 700 }}>{analysisResult.noisyHits}</span>
-            </span>
-          </div>
-        )}
+        <p style={{ color: COLORS.textDim, fontSize: 12, margin: 0, lineHeight: 1.6 }}>
+          Classification is handled by the backend pipeline. Upload and analyze swings via the Session Feed tab to see classification results.
+        </p>
       </div>
     </div>
   );

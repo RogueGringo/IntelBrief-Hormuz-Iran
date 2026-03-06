@@ -18,34 +18,7 @@ function setCache(key, data) {
   cache.set(key, { data, ts: Date.now() });
 }
 
-// Classification keywords — CLEAN / NOISY
-const CLEAN_KEYWORDS = [
-  'address', 'backswing', 'top', 'downswing', 'impact', 'follow', 'finish',
-  'persistent', 'stable', 'coherent', 'converged', 'consistent',
-  'calibrated', 'synchronized', 'complete', 'valid', 'within-range',
-  'extracted', 'resolved', 'detected', 'matched', 'baseline-aligned',
-  'phase', 'transition', 'acceleration', 'peak', 'velocity',
-];
-
-const NOISY_KEYWORDS = [
-  'saturated', 'clipped', 'dropout', 'drift', 'desync', 'interpolated',
-  'ambiguous', 'overlap', 'missed', 'uncertain', 'low-confidence',
-  'degenerate', 'unstable', 'divergent', 'sparse', 'insufficient',
-  'missing', 'partial', 'corrupted', 'outlier', 'rejected',
-  'error', 'failed', 'timeout', 'overflow', 'underflow',
-];
-
-export function classifyText(text) {
-  const lower = text.toLowerCase();
-  const cleanHits = CLEAN_KEYWORDS.filter(kw => lower.includes(kw)).length;
-  const noisyHits = NOISY_KEYWORDS.filter(kw => lower.includes(kw)).length;
-  const total = cleanHits + noisyHits;
-  if (total === 0) return { classification: 'MIXED', confidence: 0, cleanHits: 0, noisyHits: 0 };
-  const score = (cleanHits - noisyHits) / total;
-  const classification = score > 0.15 ? 'CLEAN' : score < -0.15 ? 'NOISY' : 'MIXED';
-  const confidence = Math.min(100, Math.round((total / 8) * 100));
-  return { classification, confidence, cleanHits, noisyHits };
-}
+// Classification is handled by the backend — no client-side thresholds.
 
 // Topology chain terms
 export const CHAIN_TERMS = {
@@ -62,12 +35,13 @@ export async function fetchSwings() {
   if (cached) return cached;
   try {
     const resp = await fetch(`${API_BASE}/api/swings`);
+    if (!resp.ok) return { error: true, message: `Server returned ${resp.status}` };
     const data = await resp.json();
     setCache('swings', data);
     return data;
   } catch (e) {
     console.error('fetchSwings failed:', e);
-    return [];
+    return { error: true, message: e.message || 'Failed to reach backend' };
   }
 }
 
@@ -91,12 +65,13 @@ export async function fetchSignals() {
   if (cached) return cached;
   try {
     const resp = await fetch(`${API_BASE}/api/signals`);
+    if (!resp.ok) return { error: true, message: `Server returned ${resp.status}`, signals: [], categories: {} };
     const data = await resp.json();
     setCache('signals', data);
     return data;
   } catch (e) {
     console.error('fetchSignals failed:', e);
-    return { signals: [], categories: {} };
+    return { error: true, message: e.message || 'Failed to reach backend', signals: [], categories: {} };
   }
 }
 
@@ -113,10 +88,11 @@ export async function fetchLLMStatus() {
 export async function fetchModels() {
   try {
     const resp = await fetch(`${API_BASE}/api/models`);
+    if (!resp.ok) return { error: true, message: `Server returned ${resp.status}` };
     return await resp.json();
   } catch (e) {
     console.error('fetchModels failed:', e);
-    return [];
+    return { error: true, message: e.message || 'Failed to reach backend' };
   }
 }
 
@@ -125,11 +101,13 @@ export async function fetchBaselines() {
   if (cached) return cached;
   try {
     const resp = await fetch(`${API_BASE}/api/baselines`);
+    if (!resp.ok) return { error: true, message: `Server returned ${resp.status}` };
     const data = await resp.json();
     setCache('baselines', data);
     return data;
   } catch (e) {
-    return [];
+    console.error('fetchBaselines failed:', e);
+    return { error: true, message: e.message || 'Failed to reach backend' };
   }
 }
 
@@ -191,4 +169,15 @@ export async function triggerAgentLoop(maxCycles = 3) {
     body: JSON.stringify({ max_cycles: maxCycles }),
   });
   return await resp.json();
+}
+
+export async function getHealth() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/health`);
+    if (!resp.ok) return { ok: false, message: `Server returned ${resp.status}` };
+    const data = await resp.json();
+    return { ok: true, ...data };
+  } catch (e) {
+    return { ok: false, message: e.message || 'Backend unreachable' };
+  }
 }
