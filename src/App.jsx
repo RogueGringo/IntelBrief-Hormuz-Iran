@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentPlan, fetchAgentDashboard, ingestSwing, analyzeSwing, coachSwing, compareSwings, swapModel, triggerDistill, triggerAgentLoop, classifyText } from './DataService.jsx';
 import { COLORS, CATEGORY_COLORS, CLASS_COLORS } from "./theme.js";
 
@@ -70,11 +70,157 @@ function ThesisTab() {
   </div>;
 }
 
+const SEVERITY_COLORS = {
+  green: COLORS.green,
+  yellow: '#e0c040',
+  red: COLORS.red,
+  unknown: COLORS.textMuted,
+};
+
+const CATEGORY_ORDER = ['imu', 'features', 'topology', 'llm', 'data'];
+const CATEGORY_LABELS = {
+  imu: 'IMU Health',
+  features: 'Feature Pipeline',
+  topology: 'Topology Engine',
+  llm: 'LLM Status',
+  data: 'Data Inventory',
+};
+
+const SEVERITY_RANK = { red: 3, yellow: 2, green: 1, unknown: 0 };
+
+function worstSeverity(signals) {
+  let worst = 'unknown';
+  for (const s of signals) {
+    if ((SEVERITY_RANK[s.severity] || 0) > (SEVERITY_RANK[worst] || 0)) {
+      worst = s.severity;
+    }
+  }
+  return worst;
+}
+
 function SensorNodesTab() {
-  return <div style={{ padding: 20, color: COLORS.text }}>
-    <h2 style={{ color: COLORS.gold }}>SENSOR NODES</h2>
-    <p style={{ color: COLORS.textDim }}>Motion pipeline health monitoring — implementation pending.</p>
-  </div>;
+  const [signalData, setSignalData] = useState({ signals: [], categories: {} });
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(() => {
+    const init = {};
+    CATEGORY_ORDER.forEach(c => { init[c] = true; });
+    return init;
+  });
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const data = await fetchSignals();
+      if (active) {
+        setSignalData(data);
+        setLoading(false);
+      }
+    };
+    load();
+    const interval = setInterval(load, 5000);
+    return () => { active = false; clearInterval(interval); };
+  }, []);
+
+  const toggleCategory = (cat) => {
+    setExpanded(prev => ({ ...prev, [cat]: !prev[cat] }));
+  };
+
+  const grouped = {};
+  CATEGORY_ORDER.forEach(c => { grouped[c] = []; });
+  (signalData.signals || []).forEach(s => {
+    if (grouped[s.category]) grouped[s.category].push(s);
+  });
+
+  return (
+    <div style={{ padding: '24px 0' }}>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ color: COLORS.gold, fontSize: 20, fontWeight: 700, letterSpacing: 1, margin: 0 }}>
+          SENSOR NODES
+        </h2>
+        <p style={{ color: COLORS.textDim, fontSize: 12, margin: '4px 0 0', letterSpacing: 0.5 }}>
+          Motion Pipeline Health
+        </p>
+      </div>
+
+      {loading ? (
+        <div style={{ color: COLORS.textMuted, fontSize: 13, padding: 20 }}>Loading signals...</div>
+      ) : (
+        CATEGORY_ORDER.map(cat => {
+          const signals = grouped[cat];
+          const worst = worstSeverity(signals);
+          const catColor = CATEGORY_COLORS[cat] || COLORS.textMuted;
+          const isExpanded = expanded[cat];
+
+          return (
+            <div key={cat} style={{ marginBottom: 12 }}>
+              <div
+                onClick={() => toggleCategory(cat)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 16px',
+                  background: COLORS.surface,
+                  borderLeft: `3px solid ${catColor}`,
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+              >
+                <span style={{ color: COLORS.textMuted, fontSize: 10, width: 12, textAlign: 'center' }}>
+                  {isExpanded ? '\u25BC' : '\u25B6'}
+                </span>
+                <span style={{ color: COLORS.gold, fontSize: 13, fontWeight: 700, letterSpacing: 1, flex: 1 }}>
+                  {CATEGORY_LABELS[cat] || cat}
+                </span>
+                <span style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: SEVERITY_COLORS[worst] || SEVERITY_COLORS.unknown,
+                }} />
+                <span style={{ color: COLORS.textMuted, fontSize: 10, letterSpacing: 0.5 }}>
+                  {signals.length} signals
+                </span>
+              </div>
+
+              {isExpanded && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 8,
+                  padding: '8px 0 0 0',
+                }}>
+                  {signals.map(sig => (
+                    <div key={sig.id} style={{
+                      background: COLORS.surface,
+                      border: `1px solid ${COLORS.border}`,
+                      borderRadius: 6,
+                      padding: '12px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                    }}>
+                      <span style={{
+                        width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                        background: SEVERITY_COLORS[sig.severity] || SEVERITY_COLORS.unknown,
+                      }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: COLORS.textDim, fontSize: 11, letterSpacing: 0.3 }}>
+                          {sig.label}
+                        </div>
+                        <div style={{ color: COLORS.text, fontSize: 14, fontWeight: 700, marginTop: 2 }}>
+                          {sig.value}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
 }
 
 function MotionPatternsTab() {
