@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchSwings, ingestSwing, analyzeSwing, coachSwing, getHealth } from './DataService.jsx';
+import { fetchSwings, fetchSwing, ingestSwing, analyzeSwing, coachSwing, getHealth } from './DataService.jsx';
 import { COLORS, CLASS_COLORS } from './theme.js';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -119,6 +119,7 @@ export default function SessionFeedTab() {
   const [backendOnline, setBackendOnline] = useState(null);
   const [classFilter, setClassFilter] = useState('ALL');
   const [expandedSwing, setExpandedSwing] = useState(null);
+  const [expandedData, setExpandedData] = useState({});
   const [actionLoading, setActionLoading] = useState({});
   const fileInputRef = useRef(null);
   const mountedRef = useRef(true);
@@ -393,7 +394,18 @@ export default function SessionFeedTab() {
             return (
               <div
                 key={id}
-                onClick={() => setExpandedSwing(isExpanded ? null : id)}
+                onClick={() => {
+                  if (isExpanded) {
+                    setExpandedSwing(null);
+                  } else {
+                    setExpandedSwing(id);
+                    if (!expandedData[id]) {
+                      fetchSwing(id).then(data => {
+                        if (mountedRef.current) setExpandedData(prev => ({ ...prev, [id]: data }));
+                      });
+                    }
+                  }
+                }}
                 style={{
                   background: isExpanded ? `${classColor}08` : COLORS.surface,
                   border: `1px solid ${isExpanded ? classColor + '40' : COLORS.border}`,
@@ -509,17 +521,65 @@ export default function SessionFeedTab() {
                 </div>
 
                 {/* Expandable detail */}
-                {isExpanded && (
+                {isExpanded && (() => {
+                  const full = expandedData[id] || {};
+                  const feat = full.features || {};
+                  const topo = full.topology || {};
+                  const phases = topo.phases?.phases || [];
+                  const phaseSummary = topo.phases?.summary || {};
+                  const PHASE_COLORS = {
+                    idle: COLORS.textMuted, onset: COLORS.blue, load: COLORS.purple,
+                    peak_load: COLORS.gold, drive: COLORS.orange, impact: COLORS.red,
+                    follow: COLORS.green, recovery: COLORS.textDim,
+                  };
+
+                  return (
                   <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${COLORS.border}` }}>
+                    {/* Session metadata */}
+                    {full.session_meta && (
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                        {Object.entries(full.session_meta).map(([k, v]) => (
+                          <span key={k} style={{
+                            fontSize: 9, padding: '2px 6px', borderRadius: 3,
+                            background: `${COLORS.blue}10`, color: COLORS.blue,
+                            border: `1px solid ${COLORS.blue}15`, fontFamily: 'monospace',
+                          }}>
+                            {k}={v}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                      {/* Features */}
+                      {/* Features highlight */}
                       <div>
                         <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
-                          FEATURES
+                          FEATURES ({Object.keys(feat).length})
                         </div>
-                        <div style={{ fontSize: 12, color: COLORS.textDim }}>
-                          Feature count: {swing.feature_count ?? swing.features?.length ?? '\u2014'}
-                        </div>
+                        {Object.keys(feat).length > 0 ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                            {[
+                              { label: 'Peak Accel', key: 'accel_mag_max', unit: 'mg' },
+                              { label: 'Peak Gyro', key: 'gyro_mag_max', unit: 'mdps' },
+                              { label: 'Duration', key: 'duration_s', unit: 's' },
+                              { label: 'Sample Rate', key: 'sample_rate_hz', unit: 'Hz' },
+                              { label: 'Smoothness', key: 'smoothness', unit: '' },
+                              { label: 'Jerk Ratio', key: 'jerk_ratio', unit: '' },
+                              { label: 'Accel RMS', key: 'accel_mag_rms', unit: 'mg' },
+                              { label: 'Entropy', key: 'accel_entropy', unit: '' },
+                            ].map(item => (
+                              <div key={item.key} style={{ fontSize: 10, color: COLORS.textDim }}>
+                                <span style={{ color: COLORS.textMuted }}>{item.label}: </span>
+                                <strong style={{ color: COLORS.text }}>
+                                  {feat[item.key] != null ? (typeof feat[item.key] === 'number' ? feat[item.key].toFixed(1) : feat[item.key]) : '—'}
+                                </strong>
+                                {item.unit && <span style={{ color: COLORS.textMuted, fontSize: 9 }}> {item.unit}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 11, color: COLORS.textDim }}>Not yet extracted</div>
+                        )}
                       </div>
 
                       {/* Topology summary */}
@@ -527,20 +587,79 @@ export default function SessionFeedTab() {
                         <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
                           TOPOLOGY
                         </div>
-                        <div style={{ fontSize: 12, color: COLORS.textDim }}>
-                          Betti-0: {swing.betti_0 ?? swing.topology?.betti_0 ?? '\u2014'}
-                        </div>
-                        <div style={{ fontSize: 12, color: COLORS.textDim }}>
-                          Total persistence: {swing.total_persistence ?? swing.topology?.total_persistence ?? '\u2014'}
-                        </div>
+                        {topo.embedding ? (
+                          <div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                              <div style={{ fontSize: 10, color: COLORS.textDim }}>
+                                Betti-0: <strong style={{ color: COLORS.text }}>{topo.betti_0}</strong>
+                              </div>
+                              <div style={{ fontSize: 10, color: COLORS.textDim }}>
+                                Betti-1: <strong style={{ color: COLORS.text }}>{topo.betti_1}</strong>
+                              </div>
+                              <div style={{ fontSize: 10, color: COLORS.textDim }}>
+                                Persistence: <strong style={{ color: COLORS.text }}>{topo.total_persistence?.toFixed(3)}</strong>
+                              </div>
+                              <div style={{ fontSize: 10, color: COLORS.textDim }}>
+                                Embedding: <strong style={{ color: COLORS.text }}>{topo.embedding?.length}D</strong>
+                              </div>
+                            </div>
+                            {topo.point_cloud_stats && (
+                              <div style={{ fontSize: 9, color: COLORS.textMuted, marginTop: 4 }}>
+                                Point cloud: {topo.point_cloud_stats.n_points} pts in {topo.point_cloud_stats.dimension}D
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 11, color: COLORS.textDim }}>Not yet encoded</div>
+                        )}
                       </div>
                     </div>
+
+                    {/* Phase timeline */}
+                    {phases.length > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                          PHASES ({phaseSummary.n_phases || phases.length})
+                          {phaseSummary.active_duration_s && (
+                            <span style={{ fontWeight: 400, marginLeft: 8 }}>
+                              Active: {phaseSummary.active_duration_s.toFixed(2)}s
+                            </span>
+                          )}
+                        </div>
+                        <div style={{
+                          display: 'flex', height: 20, borderRadius: 4, overflow: 'hidden',
+                          border: `1px solid ${COLORS.border}`,
+                        }}>
+                          {phases.map(([start, end, name], i) => {
+                            const total = phases[phases.length - 1]?.[1] || 1;
+                            const width = ((end - start) / total) * 100;
+                            return (
+                              <div key={i} title={`${name} [${start}-${end}]`} style={{
+                                width: `${Math.max(width, 1)}%`,
+                                background: `${PHASE_COLORS[name] || COLORS.textMuted}40`,
+                                borderRight: i < phases.length - 1 ? `1px solid ${COLORS.bg}` : 'none',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}>
+                                {width > 8 && (
+                                  <span style={{
+                                    fontSize: 7, color: PHASE_COLORS[name] || COLORS.textMuted,
+                                    fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase',
+                                  }}>
+                                    {name}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Classification details */}
                     {swing.classification && (
                       <div style={{ marginTop: 12 }}>
                         <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
-                          CLASSIFICATION DETAILS
+                          CLASSIFICATION
                         </div>
                         <div style={{ display: 'flex', gap: 16 }}>
                           <span style={{ fontSize: 12, color: COLORS.textDim }}>
@@ -574,7 +693,8 @@ export default function SessionFeedTab() {
                     {/* IMU Waveform Chart */}
                     <IMUChart swingId={id} />
                   </div>
-                )}
+                  );
+                })()}
               </div>
             );
           })}
