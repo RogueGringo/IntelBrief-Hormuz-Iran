@@ -528,6 +528,57 @@ export default function MotionPatternsTab() {
         })()}
       </div>
 
+      {/* Feature Importance */}
+      {topoSwings.length >= 2 && (() => {
+        // Compute feature variance across sessions to find most distinguishing features
+        const allFeats = topoSwings.map(s => s.features || {});
+        const allKeys = [...new Set(allFeats.flatMap(f => Object.keys(f)))].filter(k =>
+          !k.startsWith('data_quality') && !k.startsWith('sample_rate') && !k.startsWith('n_samples')
+        );
+        const variances = allKeys.map(key => {
+          const vals = allFeats.map(f => f[key]).filter(v => v != null && typeof v === 'number');
+          if (vals.length < 2) return { key, variance: 0 };
+          const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+          const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / (vals.length - 1);
+          // Normalize by mean to get coefficient of variation
+          const cv = mean !== 0 ? Math.sqrt(variance) / Math.abs(mean) : 0;
+          return { key, variance, cv, mean, std: Math.sqrt(variance), count: vals.length };
+        }).filter(v => v.cv > 0).sort((a, b) => b.cv - a.cv).slice(0, 15);
+
+        if (!variances.length) return null;
+
+        const maxCv = variances[0].cv;
+
+        return (
+          <div style={cardStyle}>
+            <div style={headingStyle}>FEATURE IMPORTANCE</div>
+            <div style={{ fontSize: 10, color: COLORS.textDim, marginBottom: 10 }}>
+              Top 15 features ranked by coefficient of variation — higher = more distinguishing across sessions.
+            </div>
+            {variances.map((v, i) => (
+              <div key={v.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                <span style={{ fontSize: 9, color: COLORS.textDim, width: 16, textAlign: 'right' }}>{i + 1}</span>
+                <span style={{ fontSize: 10, color: COLORS.text, width: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {v.key.replace(/_/g, ' ')}
+                </span>
+                <div style={{ flex: 1, height: 12, background: COLORS.bg, borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${(v.cv / maxCv) * 100}%`,
+                    height: '100%',
+                    background: `linear-gradient(90deg, ${COLORS.gold}80, ${COLORS.gold})`,
+                    borderRadius: 2,
+                    transition: 'width 0.3s',
+                  }} />
+                </div>
+                <span style={{ fontSize: 9, color: COLORS.textMuted, width: 50, textAlign: 'right' }}>
+                  CV {v.cv.toFixed(2)}
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Swing Table */}
       <div style={cardStyle}>
         <div style={headingStyle}>SWING TABLE</div>
