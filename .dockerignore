@@ -2,3 +2,12 @@ node_modules
 dist
 .git
 .github
+FW_DEV
+docs
+*.md
+__pycache__
+*.pyc
+.claude
+data/uploads
+data/swings
+data/baselines
