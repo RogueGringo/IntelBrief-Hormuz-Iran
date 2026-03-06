@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchSwings, fetchSwing, ingestSwing, analyzeSwing, coachSwing, getHealth } from './DataService.jsx';
 import { COLORS, CLASS_COLORS } from './theme.js';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceArea } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceArea, ReferenceLine } from 'recharts';
 import { useToast } from './Toasts.jsx';
 
 const PHASE_COLORS_CHART = {
@@ -15,6 +15,9 @@ function IMUChart({ swingId, phases }) {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('accel'); // 'accel', 'gyro', 'impact'
   const [showPhases, setShowPhases] = useState(true);
+  const [playing, setPlaying] = useState(false);
+  const [cursor, setCursor] = useState(null);
+  const playRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -69,8 +72,36 @@ function IMUChart({ swingId, phases }) {
         {phaseRegions.length > 0 && (
           <button onClick={() => setShowPhases(!showPhases)} style={tabStyle(showPhases)}>PHASES</button>
         )}
+        <button
+          onClick={() => {
+            if (playing) {
+              clearInterval(playRef.current);
+              setPlaying(false);
+              setCursor(null);
+            } else {
+              setCursor(0);
+              setPlaying(true);
+              const maxIdx = imu.length - 1;
+              const speed = Math.max(1, Math.floor(maxIdx / 200)); // ~4s playback
+              playRef.current = setInterval(() => {
+                setCursor(prev => {
+                  if (prev >= maxIdx) {
+                    clearInterval(playRef.current);
+                    setPlaying(false);
+                    return null;
+                  }
+                  return prev + speed;
+                });
+              }, 20);
+            }
+          }}
+          style={tabStyle(playing)}
+        >
+          {playing ? 'STOP' : 'REPLAY'}
+        </button>
         <span style={{ fontSize: 10, color: COLORS.textMuted, marginLeft: 'auto', alignSelf: 'center' }}>
           {data.imu_count} samples{data.impact_count > 0 ? ` + ${data.impact_count} impact` : ''}
+          {cursor != null && ` — ${cursor}/${imu.length}`}
         </span>
       </div>
 
@@ -92,6 +123,7 @@ function IMUChart({ swingId, phases }) {
               <Line type="monotone" dataKey="accel_x_mg" stroke={COLORS.red} dot={false} strokeWidth={1} name="X" />
               <Line type="monotone" dataKey="accel_y_mg" stroke={COLORS.green} dot={false} strokeWidth={1} name="Y" />
               <Line type="monotone" dataKey="accel_z_mg" stroke={COLORS.blue} dot={false} strokeWidth={1} name="Z" />
+              {cursor != null && <ReferenceLine x={cursor} stroke={COLORS.gold} strokeWidth={2} strokeDasharray="3 2" />}
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -112,6 +144,7 @@ function IMUChart({ swingId, phases }) {
               <Line type="monotone" dataKey="gyro_x_mdps" stroke="#ff6b6b" dot={false} strokeWidth={1} name="Gx" />
               <Line type="monotone" dataKey="gyro_y_mdps" stroke="#51cf66" dot={false} strokeWidth={1} name="Gy" />
               <Line type="monotone" dataKey="gyro_z_mdps" stroke="#339af0" dot={false} strokeWidth={1} name="Gz" />
+              {cursor != null && <ReferenceLine x={cursor} stroke={COLORS.gold} strokeWidth={2} strokeDasharray="3 2" />}
             </LineChart>
           </ResponsiveContainer>
         )}
