@@ -724,6 +724,79 @@ export default function SessionFeedTab() {
                   </button>
                   <button
                     onClick={async () => {
+                      try {
+                        const resp = await fetch(`/api/swing/${id}/report`);
+                        const report = await resp.json();
+                        const w = window.open('', '_blank');
+                        if (!w) return;
+                        const feat = report.feature_summary || {};
+                        const topo = report.topology_summary || {};
+                        const phaseAnalysis = report.phase_analysis || {};
+                        const cls = report.classification || {};
+                        const phaseRows = (phaseAnalysis.phases || []).map(p =>
+                          `<tr><td>${p.name}</td><td>${p.start}</td><td>${p.end}</td><td>${p.end - p.start}</td></tr>`
+                        ).join('');
+                        w.document.write(`<!DOCTYPE html><html><head><title>Session Report — ${report.filename}</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; max-width: 800px; margin: 40px auto; color: #1a1a2e; line-height: 1.6; }
+  h1 { color: #c9a84c; border-bottom: 2px solid #c9a84c; padding-bottom: 8px; }
+  h2 { color: #333; margin-top: 24px; font-size: 16px; letter-spacing: 1px; text-transform: uppercase; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ddd; padding: 6px 12px; text-align: left; font-size: 13px; }
+  th { background: #f5f5f5; font-weight: 600; }
+  .metric { display: inline-block; padding: 8px 16px; margin: 4px; background: #f9f9f9; border-radius: 6px; border: 1px solid #eee; }
+  .metric .label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+  .metric .value { font-size: 18px; font-weight: 700; color: #1a1a2e; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-weight: 700; font-size: 12px; }
+  .footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 11px; color: #888; }
+  @media print { body { margin: 20px; } }
+</style></head><body>
+<h1>SOVEREIGN MOTION — Session Report</h1>
+<p><strong>Session:</strong> ${report.filename} &nbsp; <strong>ID:</strong> ${report.id} &nbsp; <strong>Generated:</strong> ${new Date(report.generated_at).toLocaleString()}</p>
+
+${cls.class ? `<p><span class="badge" style="background: #c9a84c22; color: #c9a84c;">${cls.class.toUpperCase()}</span> — ${((cls.confidence || 0) * 100).toFixed(0)}% confidence</p>` : ''}
+
+<h2>Feature Summary</h2>
+<div>
+  <div class="metric"><div class="label">Features</div><div class="value">${feat.total_features || '—'}</div></div>
+  <div class="metric"><div class="label">Duration</div><div class="value">${feat.duration_s?.toFixed(2) || '—'}s</div></div>
+  <div class="metric"><div class="label">Sample Rate</div><div class="value">${feat.sample_rate_hz || '—'} Hz</div></div>
+  <div class="metric"><div class="label">Peak Accel</div><div class="value">${feat.peak_acceleration_mg?.toFixed(0) || '—'} mg</div></div>
+  <div class="metric"><div class="label">Smoothness</div><div class="value">${feat.motion_smoothness?.toFixed(3) || '—'}</div></div>
+</div>
+
+<h2>Topology</h2>
+<div>
+  <div class="metric"><div class="label">Betti-0</div><div class="value">${topo.betti_0 ?? '—'}</div></div>
+  <div class="metric"><div class="label">Betti-1</div><div class="value">${topo.betti_1 ?? '—'}</div></div>
+  <div class="metric"><div class="label">Total Persistence</div><div class="value">${topo.total_persistence?.toFixed(4) || '—'}</div></div>
+  <div class="metric"><div class="label">Embedding</div><div class="value">${topo.embedding_dimension || '—'}D</div></div>
+</div>
+
+${phaseAnalysis.phases?.length ? `
+<h2>Phase Analysis</h2>
+<p>${phaseAnalysis.n_phases || '—'} phases detected &nbsp; Active duration: ${phaseAnalysis.active_duration_s?.toFixed(2) || '—'}s</p>
+<table><thead><tr><th>Phase</th><th>Start</th><th>End</th><th>Duration</th></tr></thead><tbody>${phaseRows}</tbody></table>
+` : ''}
+
+${report.coaching_notes ? `<h2>Coaching Notes</h2><p>${report.coaching_notes}</p>` : ''}
+
+<div class="footer">SOVEREIGN MOTION v1.0 — Topological Motion Intelligence<br>Report generated ${new Date().toLocaleString()}</div>
+</body></html>`);
+                        w.document.close();
+                        w.print();
+                      } catch (e) { console.error('Report error:', e); }
+                    }}
+                    style={{
+                      padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+                      cursor: 'pointer', background: `${COLORS.green}15`,
+                      border: `1px solid ${COLORS.green}40`, color: COLORS.green,
+                    }}
+                  >
+                    Print Report
+                  </button>
+                  <button
+                    onClick={async () => {
                       const label = prompt('Baseline label:', `Baseline ${id}`);
                       if (!label) return;
                       await fetch(`/api/baselines/${id}`, {
