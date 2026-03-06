@@ -31,7 +31,13 @@ from llm_manager import LLMManager
 from swing_store import SwingRecord, SwingStore
 
 # ─── APP SETUP ────────────────────────────────────────────────
-app = FastAPI(title="Motion Intelligence", version="2.0.0")
+app = FastAPI(
+    title="Sovereign Motion API",
+    version="1.0.0",
+    description="Topological motion intelligence — capture, encode, and analyze motion patterns from STEVAL-PROTEUS1 IMU sensor.",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+)
 
 app.add_middleware(
     CORSMiddleware,
