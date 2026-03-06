@@ -1,12 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchSwings, fetchSwing, ingestSwing, analyzeSwing, coachSwing, getHealth } from './DataService.jsx';
 import { COLORS, CLASS_COLORS } from './theme.js';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceArea } from 'recharts';
 
-function IMUChart({ swingId }) {
+const PHASE_COLORS_CHART = {
+  idle: '#555555', onset: '#339af0', load: '#845ef7',
+  peak_load: '#f59f00', drive: '#e67700', impact: '#e03131',
+  follow: '#37b24d', recovery: '#868e96',
+};
+
+function IMUChart({ swingId, phases }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('accel'); // 'accel', 'gyro', 'impact'
+  const [showPhases, setShowPhases] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -27,8 +34,17 @@ function IMUChart({ swingId }) {
   if (loading) return <div style={{ color: COLORS.textDim, fontSize: 11, padding: 12 }}>Loading waveform...</div>;
   if (!data || !data.imu || data.imu.length === 0) return <div style={{ color: COLORS.textMuted, fontSize: 11, padding: 12 }}>No IMU data available</div>;
 
+  const downsample = 2; // matches the API downsample param
   const imu = data.imu.map((s, i) => ({ ...s, idx: i }));
   const impact = (data.impact || []).map((s, i) => ({ ...s, idx: i }));
+
+  // Map phase sample indices to downsampled chart indices
+  const phaseRegions = (phases || []).map(([start, end, name]) => ({
+    x1: Math.floor(start / downsample),
+    x2: Math.floor(end / downsample),
+    name,
+    color: PHASE_COLORS_CHART[name] || '#666',
+  }));
 
   const tabStyle = (active) => ({
     padding: '4px 12px', borderRadius: 4, fontSize: 9, fontWeight: 700,
@@ -49,6 +65,9 @@ function IMUChart({ swingId }) {
         <button onClick={() => setView('accel')} style={tabStyle(view === 'accel')}>ACCEL</button>
         <button onClick={() => setView('gyro')} style={tabStyle(view === 'gyro')}>GYRO</button>
         {impact.length > 0 && <button onClick={() => setView('impact')} style={tabStyle(view === 'impact')}>IMPACT ({impact.length})</button>}
+        {phaseRegions.length > 0 && (
+          <button onClick={() => setShowPhases(!showPhases)} style={tabStyle(showPhases)}>PHASES</button>
+        )}
         <span style={{ fontSize: 10, color: COLORS.textMuted, marginLeft: 'auto', alignSelf: 'center' }}>
           {data.imu_count} samples{data.impact_count > 0 ? ` + ${data.impact_count} impact` : ''}
         </span>
@@ -56,13 +75,19 @@ function IMUChart({ swingId }) {
 
       <div style={{ background: COLORS.bg, borderRadius: 6, padding: '8px 4px', border: `1px solid ${COLORS.border}` }}>
         {view === 'accel' && (
-          <ResponsiveContainer width="100%" height={180}>
+          <ResponsiveContainer width="100%" height={200}>
             <LineChart data={imu} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
               <XAxis dataKey="idx" tick={{ fontSize: 9, fill: COLORS.textMuted }} />
               <YAxis tick={{ fontSize: 9, fill: COLORS.textMuted }} />
               <Tooltip {...tooltipStyle} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
+              {showPhases && phaseRegions.map((p, i) => (
+                <ReferenceArea key={i} x1={p.x1} x2={p.x2} fill={p.color} fillOpacity={0.08} label={{
+                  value: p.name.replace('_', ' '), position: 'insideTop', fontSize: 8,
+                  fill: p.color, fontWeight: 700,
+                }} />
+              ))}
               <Line type="monotone" dataKey="accel_x_mg" stroke={COLORS.red} dot={false} strokeWidth={1} name="X" />
               <Line type="monotone" dataKey="accel_y_mg" stroke={COLORS.green} dot={false} strokeWidth={1} name="Y" />
               <Line type="monotone" dataKey="accel_z_mg" stroke={COLORS.blue} dot={false} strokeWidth={1} name="Z" />
@@ -70,13 +95,19 @@ function IMUChart({ swingId }) {
           </ResponsiveContainer>
         )}
         {view === 'gyro' && (
-          <ResponsiveContainer width="100%" height={180}>
+          <ResponsiveContainer width="100%" height={200}>
             <LineChart data={imu} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
               <XAxis dataKey="idx" tick={{ fontSize: 9, fill: COLORS.textMuted }} />
               <YAxis tick={{ fontSize: 9, fill: COLORS.textMuted }} />
               <Tooltip {...tooltipStyle} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
+              {showPhases && phaseRegions.map((p, i) => (
+                <ReferenceArea key={i} x1={p.x1} x2={p.x2} fill={p.color} fillOpacity={0.08} label={{
+                  value: p.name.replace('_', ' '), position: 'insideTop', fontSize: 8,
+                  fill: p.color, fontWeight: 700,
+                }} />
+              ))}
               <Line type="monotone" dataKey="gyro_x_mdps" stroke="#ff6b6b" dot={false} strokeWidth={1} name="Gx" />
               <Line type="monotone" dataKey="gyro_y_mdps" stroke="#51cf66" dot={false} strokeWidth={1} name="Gy" />
               <Line type="monotone" dataKey="gyro_z_mdps" stroke="#339af0" dot={false} strokeWidth={1} name="Gz" />
@@ -844,8 +875,8 @@ export default function SessionFeedTab() {
                       </div>
                     )}
 
-                    {/* IMU Waveform Chart */}
-                    <IMUChart swingId={id} />
+                    {/* IMU Waveform Chart with Phase Overlay */}
+                    <IMUChart swingId={id} phases={phases} />
                   </div>
                   );
                 })()}
