@@ -146,6 +146,157 @@ function GettingStartedCard() {
   );
 }
 
+function OperationalOverview() {
+  const [stats, setStats] = useState(null);
+  const [classifier, setClassifier] = useState(null);
+  const [recent, setRecent] = useState([]);
+  const [signals, setSignals] = useState([]);
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/stats').then(r => r.json()).catch(() => null),
+      fetch('/api/classifier/status').then(r => r.json()).catch(() => null),
+      fetch('/api/swings').then(r => r.json()).catch(() => []),
+      fetch('/api/signals').then(r => r.json()).catch(() => ({ signals: [] })),
+    ]).then(([s, c, sw, sig]) => {
+      setStats(s);
+      setClassifier(c);
+      setRecent(Array.isArray(sw) ? sw.slice(0, 5) : []);
+      setSignals((sig?.signals || []).filter(x => x.severity !== 'green'));
+    });
+  }, []);
+
+  if (!stats) return null;
+
+  const statCards = [
+    { label: 'SESSIONS', value: stats.total_sessions, color: COLORS.gold },
+    { label: 'ANALYZED', value: stats.analyzed, color: COLORS.green },
+    { label: 'LABELED', value: stats.labeled, color: COLORS.blue },
+    { label: 'BASELINES', value: stats.baselines, color: COLORS.purple },
+  ];
+
+  const classifierReady = classifier?.mlp_trained;
+  const pipelineHealth = signals.length === 0 ? 'healthy' : signals.some(s => s.severity === 'red') ? 'degraded' : 'warning';
+  const healthColor = pipelineHealth === 'healthy' ? COLORS.green : pipelineHealth === 'warning' ? '#e0c040' : COLORS.red;
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      {/* Stat Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+        {statCards.map(s => (
+          <div key={s.label} style={{
+            padding: '12px 14px', borderRadius: 6,
+            background: `${s.color}08`, border: `1px solid ${s.color}20`,
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
+            <div style={{ fontSize: 8, color: COLORS.textMuted, letterSpacing: 1.5, marginTop: 2 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Status Row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+        {/* Pipeline Health */}
+        <div style={{
+          padding: '10px 14px', borderRadius: 6,
+          background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{
+            width: 10, height: 10, borderRadius: '50%', background: healthColor,
+            boxShadow: `0 0 6px ${healthColor}60`,
+          }} />
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: healthColor, letterSpacing: 0.5 }}>
+              PIPELINE {pipelineHealth.toUpperCase()}
+            </div>
+            <div style={{ fontSize: 9, color: COLORS.textMuted }}>
+              {signals.length === 0 ? 'All signals green' : `${signals.length} signal${signals.length > 1 ? 's' : ''} need attention`}
+            </div>
+          </div>
+        </div>
+
+        {/* Classifier Status */}
+        <div style={{
+          padding: '10px 14px', borderRadius: 6,
+          background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{
+            width: 10, height: 10, borderRadius: '50%',
+            background: classifierReady ? COLORS.green : COLORS.textMuted,
+          }} />
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: classifierReady ? COLORS.green : COLORS.textDim, letterSpacing: 0.5 }}>
+              {classifierReady ? `MLP ${((classifier.mlp_accuracy || 0) * 100).toFixed(0)}%` : classifier?.total_labeled > 0 ? `k-NN (${classifier.total_labeled} labeled)` : 'NO CLASSIFIER'}
+            </div>
+            <div style={{ fontSize: 9, color: COLORS.textMuted }}>
+              {classifier?.total_labeled || 0} labeled &middot; {Object.keys(classifier?.classes || {}).length} classes
+            </div>
+          </div>
+        </div>
+
+        {/* Classification Distribution */}
+        <div style={{
+          padding: '10px 14px', borderRadius: 6,
+          background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+        }}>
+          {stats.classifications && Object.keys(stats.classifications).length > 0 ? (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', height: '100%' }}>
+              {Object.entries(stats.classifications).map(([cls, count]) => (
+                <div key={cls} style={{ flex: count, textAlign: 'center' }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: CLASS_COLORS[cls.toUpperCase()] || COLORS.textMuted }}>{count}</div>
+                  <div style={{ fontSize: 7, letterSpacing: 1, color: COLORS.textMuted, textTransform: 'uppercase' }}>{cls}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 10, color: COLORS.textMuted, textAlign: 'center', padding: 4 }}>No classifications yet</div>
+          )}
+        </div>
+      </div>
+
+      {/* Recent Sessions */}
+      {recent.length > 0 && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 6, marginBottom: 16,
+          background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+        }}>
+          <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1.5, marginBottom: 8 }}>
+            RECENT SESSIONS
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {recent.map(s => {
+              const cls = (s.classification || '').toUpperCase();
+              const color = CLASS_COLORS[cls] || COLORS.textMuted;
+              return (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 10, color: COLORS.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.filename || s.id}
+                  </span>
+                  <span style={{ fontSize: 9, color: COLORS.textMuted }}>{s.status}</span>
+                  {s.user_label && (
+                    <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 3, background: `${COLORS.gold}15`, color: COLORS.gold, border: `1px solid ${COLORS.gold}20` }}>
+                      {s.user_label}
+                    </span>
+                  )}
+                  {s.classification && (
+                    <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 3, background: `${color}15`, color, fontWeight: 700 }}>
+                      {s.classification}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ThesisTab() {
   const cardStyle = {
     background: COLORS.surface,
@@ -174,6 +325,7 @@ function ThesisTab() {
 
   return (
     <div style={{ padding: 20, color: COLORS.text }}>
+      <OperationalOverview />
       <GettingStartedCard />
 
       {/* Section 1: Core Thesis */}
