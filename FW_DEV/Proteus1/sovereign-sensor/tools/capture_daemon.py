@@ -23,7 +23,7 @@ import serial
 import serial.tools.list_ports
 
 # ─── DEFAULTS ────────────────────────────────────────────────
-DEFAULT_API = "http://localhost:7860"
+DEFAULT_API = "http://localhost:8000"
 DEFAULT_BAUD = 115200
 RECONNECT_DELAY = 3        # seconds between serial reconnect attempts
 RETRY_DELAY = 10           # seconds between API retry sweeps
@@ -42,10 +42,11 @@ def find_proteus_port():
 
 
 def open_serial(port_name, baud):
-    """Open serial port, return Serial object or None."""
+    """Open serial port with DTR enabled, return Serial object or None."""
     try:
-        ser = serial.Serial(port_name, baud, timeout=1)
-        print(f"[*] Serial connected: {port_name} @ {baud}")
+        ser = serial.Serial(port_name, baud, timeout=1, dsrdtr=True)
+        ser.dtr = True  # Signal host connected — firmware needs DTR to send
+        print(f"[*] Serial connected: {port_name} @ {baud} (DTR=on)")
         return ser
     except serial.SerialException as e:
         print(f"[!] Cannot open {port_name}: {e}")
@@ -201,7 +202,7 @@ def main():
                     footer = lines[-1]
                     for part in footer.split(","):
                         part = part.strip()
-                        if part.startswith("duration_s="):
+                        if part.startswith("duration="):
                             duration_str = f", {part.split('=')[1]}s"
                             break
 

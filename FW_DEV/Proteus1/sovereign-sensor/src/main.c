@@ -17,6 +17,7 @@
 #include "transport.h"
 #include "protocol.h"
 #include <stdio.h>
+#include <string.h>
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
@@ -412,9 +413,48 @@ int main(void)
 
     leds_set(false, true, false);  /* GREEN = ready */
 
-    /* Main thread: status reporting + LED state updates + BLE notifications */
+    /* Main thread: status reporting + LED state + BLE + command processing */
     while (1) {
         leds_update_state(current_state);
+
+        /* Process USB serial commands */
+        if (usb_serial_has_command()) {
+            const char *cmd = usb_serial_get_command();
+            char resp[128];
+            int val;
+
+            if (sscanf(cmd, "SET THRESHOLD %d", &val) == 1 && val > 0 && val < 32000) {
+                runtime_config.wake_threshold_mg = (uint16_t)val;
+                swing_detect_set_threshold((uint16_t)val);
+                snprintf(resp, sizeof(resp), "OK threshold=%d", val);
+            } else if (sscanf(cmd, "SET DURATION %d", &val) == 1 && val > 0 && val <= 30) {
+                runtime_config.capture_duration_s = (uint8_t)val;
+                snprintf(resp, sizeof(resp), "OK duration=%d", val);
+            } else if (sscanf(cmd, "SET COOLDOWN %d", &val) == 1 && val > 0 && val <= 10000) {
+                swing_detect_set_cooldown((uint32_t)val);
+                snprintf(resp, sizeof(resp), "OK cooldown=%d", val);
+            } else if (strcmp(cmd, "GET STATUS") == 0) {
+                float temp = environment_read_temperature();
+                snprintf(resp, sizeof(resp),
+                    "STATUS state=%s ring=%d/%d usb=%s ble=%s temp=%.1f "
+                    "threshold=%u duration=%u impact=%s session=%04u",
+                    capture_state_name(current_state),
+                    ring_buffer_count(), RING_BUFFER_SAMPLES,
+                    usb_serial_is_connected() ? "yes" : "no",
+                    ble_is_connected() ? "yes" : "no",
+                    (double)temp,
+                    runtime_config.wake_threshold_mg,
+                    runtime_config.capture_duration_s,
+                    impact_is_ready() ? "ready" : "no",
+                    session_get_id());
+            } else if (strcmp(cmd, "GET VERSION") == 0) {
+                snprintf(resp, sizeof(resp), "VERSION v0.3.0 PROTEUS1");
+            } else {
+                snprintf(resp, sizeof(resp), "ERR unknown: %s", cmd);
+            }
+            usb_serial_writeln(resp);
+            usb_serial_command_done();
+        }
 
         /* BLE status notifications every 500ms */
         if (ble_is_connected()) {

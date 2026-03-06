@@ -17,6 +17,12 @@ static const struct device *cdc_dev;
 static bool usb_initialized = false;
 static volatile bool dtr_set = false;
 
+/* Command buffer for incoming serial commands */
+#define CMD_BUF_SIZE 128
+static char cmd_buf[CMD_BUF_SIZE];
+static volatile uint8_t cmd_len = 0;
+static volatile bool cmd_ready = false;
+
 static void cdc_acm_irq_handler(const struct device *dev, void *user_data)
 {
     ARG_UNUSED(user_data);
@@ -25,10 +31,34 @@ static void cdc_acm_irq_handler(const struct device *dev, void *user_data)
         if (uart_irq_rx_ready(dev)) {
             uint8_t buf[64];
             int len = uart_fifo_read(dev, buf, sizeof(buf));
-            /* Discard incoming data for now (Phase 1) */
-            ARG_UNUSED(len);
+            for (int i = 0; i < len; i++) {
+                if (buf[i] == '\n' || buf[i] == '\r') {
+                    if (cmd_len > 0) {
+                        cmd_buf[cmd_len] = '\0';
+                        cmd_ready = true;
+                    }
+                } else if (cmd_len < CMD_BUF_SIZE - 1) {
+                    cmd_buf[cmd_len++] = buf[i];
+                }
+            }
         }
     }
+}
+
+bool usb_serial_has_command(void)
+{
+    return cmd_ready;
+}
+
+const char *usb_serial_get_command(void)
+{
+    return cmd_ready ? cmd_buf : NULL;
+}
+
+void usb_serial_command_done(void)
+{
+    cmd_ready = false;
+    cmd_len = 0;
 }
 
 int usb_serial_init(void)

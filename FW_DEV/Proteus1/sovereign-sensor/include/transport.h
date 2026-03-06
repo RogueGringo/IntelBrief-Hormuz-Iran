@@ -9,6 +9,9 @@ int usb_serial_init(void);
 int usb_serial_write(const char *data, int len);
 int usb_serial_writeln(const char *line);
 bool usb_serial_is_connected(void);
+bool usb_serial_has_command(void);
+const char *usb_serial_get_command(void);
+void usb_serial_command_done(void);
 
 /* BLE GATT Service */
 int ble_service_init(void);
