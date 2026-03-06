@@ -1749,6 +1749,8 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [anomalies, setAnomalies] = useState([]);
   const [anomalyDismissed, setAnomalyDismissed] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('sm_onboarded'));
+  const [onboardStep, setOnboardStep] = useState(0);
 
   useEffect(() => {
     fetchAnomalies().then(data => {
@@ -1783,6 +1785,76 @@ export default function App() {
 
   return (
     <div style={{ minHeight: '100vh', background: COLORS.bg, color: COLORS.text, paddingBottom: 24 }}>
+      {/* Onboarding */}
+      {showOnboarding && (() => {
+        const steps = [
+          { title: 'Welcome to Sovereign Motion', body: 'A topological motion intelligence platform. Capture sensor data, extract 91 features, compute persistent homology, and classify motion patterns.' },
+          { title: 'Upload Motion Data', body: 'Go to SESSION FEED and drag-drop CSV files from your STEVAL-PROTEUS1 sensor. Files are validated and auto-analyzed with sovereign-lib.' },
+          { title: 'Explore Topology', body: 'Each session gets a persistence diagram, Betti numbers, sheaf coherence scores, and a 40D topological embedding. Compare sessions in TOPOLOGY CHAINS.' },
+          { title: 'Track Progress', body: 'The PROGRESS tab shows trends across sessions with 7 configurable metrics, moving averages, and anomaly detection.' },
+          { title: 'Ready to Go', body: 'Press [?] for keyboard shortcuts, check SETTINGS for configuration, or connect your sensor for live streaming. Let\'s get started!' },
+        ];
+        const step = steps[onboardStep];
+        return (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 9500,
+            background: 'rgba(0,0,0,0.8)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+          }}>
+            <div style={{
+              background: COLORS.surface, border: `1px solid ${COLORS.gold}40`,
+              borderRadius: 16, padding: 32, maxWidth: 460, width: '90%', textAlign: 'center',
+            }}>
+              <div style={{ fontSize: 9, color: COLORS.textMuted, letterSpacing: 2, marginBottom: 16 }}>
+                {onboardStep + 1} / {steps.length}
+              </div>
+              <h2 style={{ color: COLORS.gold, fontSize: 20, fontWeight: 700, letterSpacing: 1, margin: '0 0 12px' }}>
+                {step.title}
+              </h2>
+              <p style={{ color: COLORS.textDim, fontSize: 13, lineHeight: 1.6, margin: '0 0 24px' }}>
+                {step.body}
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                {onboardStep > 0 && (
+                  <button
+                    onClick={() => setOnboardStep(p => p - 1)}
+                    style={{ padding: '8px 20px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', background: 'transparent', border: `1px solid ${COLORS.border}`, color: COLORS.textDim }}
+                  >
+                    Back
+                  </button>
+                )}
+                {onboardStep < steps.length - 1 ? (
+                  <button
+                    onClick={() => setOnboardStep(p => p + 1)}
+                    style={{ padding: '8px 24px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: COLORS.gold, border: 'none', color: COLORS.bg, letterSpacing: 1 }}
+                  >
+                    Next
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => { setShowOnboarding(false); localStorage.setItem('sm_onboarded', '1'); }}
+                    style={{ padding: '8px 24px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: COLORS.gold, border: 'none', color: COLORS.bg, letterSpacing: 1 }}
+                  >
+                    Get Started
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => { setShowOnboarding(false); localStorage.setItem('sm_onboarded', '1'); }}
+                style={{ marginTop: 16, background: 'none', border: 'none', color: COLORS.textMuted, fontSize: 10, cursor: 'pointer' }}
+              >
+                Skip tour
+              </button>
+              {/* Progress dots */}
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 12 }}>
+                {steps.map((_, i) => (
+                  <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: i === onboardStep ? COLORS.gold : COLORS.border, transition: 'background 0.2s' }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {showHelp && (
         <div
           onClick={() => setShowHelp(false)}
