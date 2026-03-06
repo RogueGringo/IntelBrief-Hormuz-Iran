@@ -13,6 +13,7 @@ static uint16_t session_counter = 0;
 static uint16_t current_session_id = 0;
 static uint32_t current_sample_count = 0;
 static int64_t session_start_ms = 0;
+static float last_duration_s = 0.0f;
 static bool session_active = false;
 
 uint16_t session_start(void)
@@ -30,6 +31,7 @@ void session_end(void)
 {
     if (!session_active) return;
     int64_t duration_ms = k_uptime_get() - session_start_ms;
+    last_duration_s = (float)duration_ms / 1000.0f;
     LOG_INF("Session %04u ended: %u samples, %lld ms",
             current_session_id, current_sample_count, duration_ms);
     session_active = false;
@@ -52,7 +54,7 @@ uint32_t session_get_sample_count(void)
 
 float session_get_duration_s(void)
 {
-    if (!session_active) return 0.0f;
+    if (!session_active) return last_duration_s;
     return (float)(k_uptime_get() - session_start_ms) / 1000.0f;
 }
 
