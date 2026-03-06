@@ -1469,6 +1469,65 @@ function TopologyChainsTab() {
                     </div>
                   </div>
                 )}
+              {/* Side-by-side feature comparison radar */}
+              {compareResult.feature_diff && (() => {
+                const featureKeys = ['accel_mag_max', 'gyro_mag_max', 'smoothness', 'jerk_ratio', 'accel_entropy', 'duration_s'];
+                const valid = featureKeys.filter(k => compareResult.feature_diff[k]);
+                if (valid.length < 3) return null;
+                const n = valid.length;
+                const cx = 140, cy = 120, radius = 90;
+                const normalize = (key) => {
+                  const d = compareResult.feature_diff[key];
+                  const maxVal = Math.max(Math.abs(d.a), Math.abs(d.b), 0.001);
+                  return { a: Math.abs(d.a) / maxVal, b: Math.abs(d.b) / maxVal };
+                };
+                const point = (angle, r) => ({
+                  x: cx + Math.cos(angle - Math.PI / 2) * r * radius,
+                  y: cy + Math.sin(angle - Math.PI / 2) * r * radius,
+                });
+                const pathA = valid.map((k, i) => {
+                  const p = point((2 * Math.PI * i) / n, normalize(k).a);
+                  return `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`;
+                }).join(' ') + ' Z';
+                const pathB = valid.map((k, i) => {
+                  const p = point((2 * Math.PI * i) / n, normalize(k).b);
+                  return `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`;
+                }).join(' ') + ' Z';
+
+                return (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
+                      FEATURE RADAR
+                    </div>
+                    <svg width={280} height={240} style={{ background: COLORS.bg, borderRadius: 6, border: `1px solid ${COLORS.border}` }}>
+                      {/* Grid rings */}
+                      {[0.25, 0.5, 0.75, 1].map(r => (
+                        <circle key={r} cx={cx} cy={cy} r={r * radius} fill="none" stroke={COLORS.border} strokeWidth={0.5} />
+                      ))}
+                      {/* Axis lines and labels */}
+                      {valid.map((k, i) => {
+                        const angle = (2 * Math.PI * i) / n - Math.PI / 2;
+                        const end = point((2 * Math.PI * i) / n, 1);
+                        const labelPt = point((2 * Math.PI * i) / n, 1.15);
+                        return (
+                          <g key={k}>
+                            <line x1={cx} y1={cy} x2={end.x} y2={end.y} stroke={COLORS.border} strokeWidth={0.5} />
+                            <text x={labelPt.x} y={labelPt.y} textAnchor="middle" fill={COLORS.textMuted} fontSize={7}>{k.replace(/_/g, ' ').slice(0, 10)}</text>
+                          </g>
+                        );
+                      })}
+                      {/* Session A */}
+                      <path d={pathA} fill={`${COLORS.blue}20`} stroke={COLORS.blue} strokeWidth={1.5} />
+                      {/* Session B */}
+                      <path d={pathB} fill={`${COLORS.gold}20`} stroke={COLORS.gold} strokeWidth={1.5} />
+                    </svg>
+                    <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 10 }}>
+                      <span style={{ color: COLORS.blue }}>&#9632; Session A</span>
+                      <span style={{ color: COLORS.gold }}>&#9632; Session B</span>
+                    </div>
+                  </div>
+                );
+              })()}
               </div>
             ) : compareResult.feature_diff ? (
               <span style={{ color: '#e0c040' }}>Feature comparison available — encode both swings for topological similarity.</span>
