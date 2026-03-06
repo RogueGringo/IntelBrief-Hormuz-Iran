@@ -31,6 +31,10 @@ P2P_SERVICE_UUID = "0000fe40-cc7a-482a-984a-7f2ed5b3e58f"
 P2P_WRITE_UUID   = "0000fe41-8e22-4541-9d4c-21edae82ed19"
 P2P_NOTIFY_UUID  = "0000fe42-8e22-4541-9d4c-21edae82ed19"
 
+# ISM330DHCX sensitivities (±4g, 500dps configuration)
+ACCEL_SENSITIVITY_MG  = 0.122   # mg per LSB
+GYRO_SENSITIVITY_MDPS = 17.50   # mdps per LSB
+
 # ─── DEFAULTS ────────────────────────────────────────────────
 DEFAULT_API = "http://localhost:8000"
 DEFAULT_NAME = "P2PSRV1"
@@ -80,12 +84,16 @@ class BLECaptureSession:
                 self.missed_packets += gap
         self.last_seq = seq
 
-        elapsed_ms = (time.time() - self.start_time) * 1000.0
+        elapsed_us = (time.time() - self.start_time) * 1_000_000.0
+        # Convert raw LSB to physical units
         self.packets.append({
-            "seq": seq,
-            "time_ms": round(elapsed_ms, 1),
-            "ax": ax, "ay": ay, "az": az,
-            "gx": gx, "gy": gy, "gz": gz,
+            "timestamp_us": int(elapsed_us),
+            "accel_x_mg": round(ax * ACCEL_SENSITIVITY_MG, 1),
+            "accel_y_mg": round(ay * ACCEL_SENSITIVITY_MG, 1),
+            "accel_z_mg": round(az * ACCEL_SENSITIVITY_MG, 1),
+            "gyro_x_mdps": round(gx * GYRO_SENSITIVITY_MDPS, 1),
+            "gyro_y_mdps": round(gy * GYRO_SENSITIVITY_MDPS, 1),
+            "gyro_z_mdps": round(gz * GYRO_SENSITIVITY_MDPS, 1),
         })
 
     def finalize(self) -> Path | None:
@@ -102,9 +110,11 @@ class BLECaptureSession:
         with open(filepath, "w", newline="\n") as f:
             # Header compatible with sovereign-lib ingest
             f.write(f"# device=PROTEUS1_BLE,session={self.session_id},"
-                    f"rate_hz=500,source=ble\n")
+                    f"rate_hz={len(self.packets) / max(duration, 0.01):.0f},"
+                    f"source=ble\n")
             writer = csv.DictWriter(f, fieldnames=[
-                "seq", "time_ms", "ax", "ay", "az", "gx", "gy", "gz"
+                "timestamp_us", "accel_x_mg", "accel_y_mg", "accel_z_mg",
+                "gyro_x_mdps", "gyro_y_mdps", "gyro_z_mdps",
             ])
             writer.writeheader()
             writer.writerows(self.packets)
