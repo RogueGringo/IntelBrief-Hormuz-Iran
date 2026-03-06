@@ -122,8 +122,7 @@ try:
     from sovereign_motion.quality import analyze_quality
     sovereign_lib_available = True
 except ImportError as e:
-    import logging
-    logging.getLogger("app").warning(f"sovereign-lib not available: {e}")
+    logger.warning("sovereign-lib not available: %s", e)
 
 # ─── 20 MOTION QUALITY SIGNALS ───────────────────────────────
 SIGNALS = [
@@ -616,6 +615,8 @@ async def ingest(request: Request, file: UploadFile = File(...), ground_truth: s
             preview["peak_accel_mg"] = round(max(magnitudes), 1)
             preview["mean_accel_mg"] = round(sum(magnitudes) / len(magnitudes), 1)
 
+    logger.info("ingest filename=%s samples=%d size=%d", file.filename, n_rows, len(content))
+
     result = {
         "id": swing_id,
         "filename": file.filename,
@@ -795,8 +796,26 @@ async def batch():
 
 # ─── SWING CRUD ──────────────────────────────────────────────
 @app.get("/api/swings")
-async def list_swings():
-    return store.list_all()
+async def list_swings(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    status: str | None = Query(None),
+    label: str | None = Query(None),
+    search: str | None = Query(None),
+):
+    all_records = store.list_all()
+    if status:
+        all_records = [r for r in all_records if r["status"] == status]
+    if label:
+        all_records = [r for r in all_records if r.get("user_label") == label or r.get("classification") == label]
+    if search:
+        q = search.lower()
+        all_records = [r for r in all_records if q in (r.get("filename") or "").lower()
+                       or q in (r.get("notes") or "").lower()
+                       or q in (r.get("user_label") or "").lower()
+                       or q in (r.get("classification") or "").lower()]
+    all_records.reverse()  # newest first
+    return all_records[offset:offset + limit]
 
 
 @app.get("/api/swing/{swing_id}")
@@ -883,7 +902,7 @@ async def remove_label(swing_id: str):
 @app.get("/api/classifier/status")
 async def classifier_status():
     counts = motion_classifier.get_label_counts()
-    mlp = motion_classifier._mlp
+    mlp = getattr(motion_classifier, 'mlp', None) or getattr(motion_classifier, '_mlp', None)
     return {
         "total_labeled": sum(counts.values()),
         "classes": counts,
@@ -1930,4 +1949,5 @@ if STATIC_DIR.exists():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 7860))
+    logger.info("Starting Sovereign Motion API data_dir=%s port=%d", DATA_DIR, port)
     uvicorn.run(app, host="0.0.0.0", port=port)

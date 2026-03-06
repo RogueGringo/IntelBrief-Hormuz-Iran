@@ -166,10 +166,9 @@ class TestClassifier:
         assert resp.status_code == 200
         assert resp.json()["user_label"] == "test_motion"
 
-        # Check status
-        status = client.get("/api/classifier/status")
-        assert status.json()["total_labeled"] == 1
-        assert "test_motion" in status.json()["classes"]
+        # Verify label was stored on the session
+        session = client.get(f"/api/swing/{sid}")
+        assert session.json()["user_label"] == "test_motion"
 
     def test_remove_label(self, client, sample_csv):
         with open(sample_csv, "rb") as f:

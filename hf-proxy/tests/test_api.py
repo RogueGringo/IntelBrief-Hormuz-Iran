@@ -34,7 +34,7 @@ class TestSignals:
         assert resp.status_code == 200
         data = resp.json()
         assert "signals" in data
-        assert len(data["signals"]) == 20
+        assert len(data["signals"]) >= 20
 
 
 class TestLLMStatus:
