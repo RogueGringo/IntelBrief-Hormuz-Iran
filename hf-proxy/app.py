@@ -48,6 +48,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ─── OPTIONAL API KEY AUTH ─────────────────────────────────────
+API_KEY = os.environ.get("SOVEREIGN_API_KEY")
+if API_KEY:
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class APIKeyMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            # Skip auth for static files, health, docs
+            path = request.url.path
+            if path in ("/", "/api/health", "/api/version", "/api/docs", "/api/redoc", "/openapi.json") or not path.startswith("/api/"):
+                return await call_next(request)
+            key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+            if key != API_KEY:
+                return JSONResponse({"error": "Invalid or missing API key"}, status_code=401)
+            return await call_next(request)
+
+    app.add_middleware(APIKeyMiddleware)
+
+
 # ─── PATHS ────────────────────────────────────────────────────
 STATIC_DIR = Path(__file__).parent / "static"
 SOVEREIGN_LIB = Path(os.environ.get("SOVEREIGN_LIB_PATH", Path(__file__).parent.parent / "sovereign-lib"))
@@ -184,6 +203,26 @@ def run_sovereign_cli(*args: str) -> dict[str, Any]:
 
 
 # ─── HEALTH ───────────────────────────────────────────────────
+@app.get("/api/version")
+async def version():
+    """System version and capability info."""
+    return {
+        "version": "1.0.0",
+        "api_version": "v1",
+        "sovereign_lib": sovereign_lib_available,
+        "capabilities": {
+            "feature_extraction": extract_imu_features is not None,
+            "topology_encoding": encode_motion is not None,
+            "phase_detection": PhaseDetector is not None,
+            "llm_coaching": llm.gpu_slot is not None or llm.cpu_slot is not None,
+            "live_sensor": True,
+            "anomaly_detection": True,
+            "batch_processing": True,
+        },
+        "python_version": sys.version.split()[0],
+    }
+
+
 @app.get("/api/health")
 async def health():
     all_swings = store.list_all()

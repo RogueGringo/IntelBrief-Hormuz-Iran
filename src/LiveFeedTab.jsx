@@ -475,7 +475,17 @@ export default function SessionFeedTab() {
               border: `1px solid ${COLORS.blue}40`, color: COLORS.blue,
             }}
           >
-            Export CSV
+            CSV
+          </button>
+          <button
+            onClick={() => { window.open('/api/export/json', '_blank'); }}
+            style={{
+              padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+              cursor: 'pointer', background: `${COLORS.purple}15`,
+              border: `1px solid ${COLORS.purple}40`, color: COLORS.purple,
+            }}
+          >
+            JSON
           </button>
           {batchProgress && (
             <div style={{ width: 120, height: 4, background: COLORS.border, borderRadius: 2, overflow: 'hidden' }}>
