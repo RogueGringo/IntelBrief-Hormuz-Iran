@@ -186,9 +186,11 @@ export async function fetchTrends() {
   }
 }
 
-export async function fetchEmbeddingMap() {
-  const cached = getCached('embedding_map', 15000);
-  if (cached) return cached;
+export async function fetchEmbeddingMap(force = false) {
+  if (!force) {
+    const cached = getCached('embedding_map', 15000);
+    if (cached) return cached;
+  }
   try {
     const resp = await fetch(`${API_BASE}/api/embeddings/map`);
     if (!resp.ok) return { points: [], variance_explained: [], count: 0 };

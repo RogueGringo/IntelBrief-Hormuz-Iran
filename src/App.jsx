@@ -1500,15 +1500,15 @@ function EmbeddingScatter({ onSelectSwing, highlightId }) {
   const [labelInput, setLabelInput] = useState('');
   const [labeling, setLabeling] = useState(false);
 
-  const reload = useCallback(() => {
+  const reload = useCallback((force = false) => {
     setLoading(true);
-    fetchEmbeddingMap().then(data => {
+    fetchEmbeddingMap(force).then(data => {
       setMapData(data);
       setLoading(false);
     });
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { reload(false); }, [reload]);
 
   if (loading) return <div style={{ color: COLORS.textDim, fontSize: 11, padding: 12 }}>Loading embedding map...</div>;
   if (!mapData || mapData.count < 2) {
@@ -1648,7 +1648,7 @@ function EmbeddingScatter({ onSelectSwing, highlightId }) {
               body: JSON.stringify({ label }),
             });
             setLabelPopup(null);
-            reload();
+            reload(true);
           } catch (e) { console.error('Label failed:', e); }
           setLabeling(false);
         };
