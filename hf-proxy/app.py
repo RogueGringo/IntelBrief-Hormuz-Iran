@@ -526,12 +526,35 @@ async def ingest(file: UploadFile = File(...), ground_truth: str = Form("{}"), a
     )
     store.save(record)
 
+    # Quick-look data summary
+    data_lines = [l for l in text.splitlines() if l.strip() and not l.strip().startswith("#")]
+    n_rows = max(0, len(data_lines) - 1)  # exclude header
+    preview = {}
+    if n_rows > 0:
+        import csv as csv_mod
+        import io
+        reader = csv_mod.DictReader(io.StringIO("\n".join(data_lines)))
+        vals = {"accel_x_mg": [], "accel_y_mg": [], "accel_z_mg": []}
+        for row in reader:
+            for k in vals:
+                try:
+                    vals[k].append(float(row.get(k, 0)))
+                except (ValueError, TypeError):
+                    pass
+        if vals["accel_x_mg"]:
+            preview["samples"] = n_rows
+            preview["duration_est_s"] = round(n_rows / 500, 2)  # assumes 500Hz
+            magnitudes = [(x**2 + y**2 + z**2)**0.5 for x, y, z in zip(vals["accel_x_mg"], vals["accel_y_mg"], vals["accel_z_mg"])]
+            preview["peak_accel_mg"] = round(max(magnitudes), 1)
+            preview["mean_accel_mg"] = round(sum(magnitudes) / len(magnitudes), 1)
+
     result = {
         "id": swing_id,
         "filename": file.filename,
         "status": "ingested",
         "size": len(content),
         "session_meta": session_meta if session_meta else None,
+        "preview": preview if preview else None,
     }
 
     # Auto-analyze if sovereign-lib is available
@@ -1085,6 +1108,23 @@ async def export_csv():
         content=output.getvalue(),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=sovereign_motion_export.csv"},
+    )
+
+
+@app.get("/api/export/json")
+async def export_json():
+    """Export all sessions as a JSON array with full features and topology."""
+    all_swings = store.list_all()
+    if not all_swings:
+        return JSONResponse({"error": "No sessions to export"}, status_code=404)
+    records = []
+    for summary in all_swings:
+        record = store.load(summary["id"])
+        if record:
+            records.append(record.to_dict())
+    return JSONResponse(
+        content=records,
+        headers={"Content-Disposition": "attachment; filename=sovereign_motion_export.json"},
     )
 
 
