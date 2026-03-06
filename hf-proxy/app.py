@@ -292,6 +292,55 @@ async def sensor_command(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# ─── CAPTURE DAEMON CONTROL ──────────────────────────────────
+_capture_process = None
+
+@app.post("/api/sensor/capture/start")
+async def start_capture():
+    """Start the capture daemon as a subprocess."""
+    global _capture_process
+    if _capture_process and _capture_process.poll() is None:
+        return {"status": "already_running", "pid": _capture_process.pid}
+
+    daemon_path = Path(__file__).parent.parent / "FW_DEV" / "Proteus1" / "sovereign-sensor" / "tools" / "capture_daemon.py"
+    if not daemon_path.exists():
+        return JSONResponse({"error": "Capture daemon not found"}, status_code=404)
+
+    _capture_process = subprocess.Popen(
+        [sys.executable, str(daemon_path), "--api", "http://localhost:8000"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    return {"status": "started", "pid": _capture_process.pid}
+
+
+@app.post("/api/sensor/capture/stop")
+async def stop_capture():
+    """Stop the capture daemon."""
+    global _capture_process
+    if not _capture_process or _capture_process.poll() is not None:
+        return {"status": "not_running"}
+
+    _capture_process.terminate()
+    try:
+        _capture_process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        _capture_process.kill()
+
+    pid = _capture_process.pid
+    _capture_process = None
+    return {"status": "stopped", "pid": pid}
+
+
+@app.get("/api/sensor/capture/status")
+async def capture_status():
+    """Check capture daemon status."""
+    if _capture_process and _capture_process.poll() is None:
+        return {"running": True, "pid": _capture_process.pid}
+    return {"running": False}
+
+
 # ─── LIVE STREAM ─────────────────────────────────────────────
 @app.get("/api/sensor/stream")
 async def sensor_stream():

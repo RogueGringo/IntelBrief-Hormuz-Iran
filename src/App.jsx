@@ -342,6 +342,7 @@ function HardwareSensorPanel() {
   const [showStream, setShowStream] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [configMsg, setConfigMsg] = useState(null);
+  const [capturing, setCapturing] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -354,8 +355,16 @@ function HardwareSensorPanel() {
         if (active) setError(e.message);
       }
     };
+    const pollCapture = async () => {
+      try {
+        const resp = await fetch('/api/sensor/capture/status');
+        const data = await resp.json();
+        if (active) setCapturing(data.running);
+      } catch (e) { /* ignore */ }
+    };
     poll();
-    const interval = setInterval(poll, 3000);
+    pollCapture();
+    const interval = setInterval(() => { poll(); pollCapture(); }, 3000);
     return () => { active = false; clearInterval(interval); };
   }, []);
 
@@ -413,6 +422,24 @@ function HardwareSensorPanel() {
             color: showConfig ? COLORS.gold : COLORS.textMuted,
           }}>
             CONFIG
+          </button>
+        )}
+        {connected && (
+          <button onClick={async (e) => {
+            e.stopPropagation();
+            const endpoint = capturing ? '/api/sensor/capture/stop' : '/api/sensor/capture/start';
+            try {
+              await fetch(endpoint, { method: 'POST' });
+              setCapturing(!capturing);
+            } catch (err) { /* ignore */ }
+          }} style={{
+            padding: '4px 12px', borderRadius: 4, fontSize: 9,
+            fontWeight: 700, letterSpacing: 1, cursor: 'pointer',
+            background: capturing ? `${COLORS.red}20` : `${COLORS.green}15`,
+            border: `1px solid ${capturing ? COLORS.red : COLORS.green}40`,
+            color: capturing ? COLORS.red : COLORS.green,
+          }}>
+            {capturing ? 'STOP CAPTURE' : 'AUTO CAPTURE'}
           </button>
         )}
       </div>
