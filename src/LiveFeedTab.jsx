@@ -231,10 +231,18 @@ export default function SessionFeedTab() {
     ? Math.round(classifiedSwings.reduce((sum, s) => sum + (s.classification_confidence || 0), 0) / classifiedSwings.length)
     : 0;
 
+  const [tagFilter, setTagFilter] = useState(null);
+
+  // Collect all unique tags
+  const allTags = [...new Set(swings.flatMap(s => s.tags || []))];
+
   // Filtered swings
-  const filtered = classFilter === 'ALL'
+  let filtered = classFilter === 'ALL'
     ? swings
     : swings.filter(s => s.classification === classFilter);
+  if (tagFilter) {
+    filtered = filtered.filter(s => (s.tags || []).includes(tagFilter));
+  }
 
   return (
     <div style={{ padding: '32px', maxWidth: 1200 }}>
@@ -411,6 +419,22 @@ export default function SessionFeedTab() {
             {f}
           </button>
         ))}
+        {allTags.length > 0 && (
+          <>
+            <span style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 1, marginLeft: 8, marginRight: 4 }}>TAG</span>
+            {allTags.map(tag => (
+              <button key={tag} onClick={() => setTagFilter(tagFilter === tag ? null : tag)} style={{
+                padding: '4px 10px', borderRadius: 10, fontSize: 9, fontWeight: 600,
+                cursor: 'pointer', border: '1px solid',
+                background: tagFilter === tag ? `${COLORS.blue}20` : 'transparent',
+                borderColor: tagFilter === tag ? COLORS.blue : COLORS.border,
+                color: tagFilter === tag ? COLORS.blue : COLORS.textMuted,
+              }}>
+                {tag}
+              </button>
+            ))}
+          </>
+        )}
         {swings.some(s => s.status === 'ingested') && (
           <button onClick={async () => {
             const unanalyzed = swings.filter(s => s.status === 'ingested');
