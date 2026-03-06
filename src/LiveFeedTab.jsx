@@ -232,6 +232,23 @@ export default function SessionFeedTab() {
     if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
   }, [selectedIds, addToast]);
 
+  const handleBulkAnalyze = useCallback(async () => {
+    if (!selectedIds.size) return;
+    const ids = [...selectedIds];
+    setBatchProgress({ done: 0, total: ids.length });
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        await fetch(`/api/analyze/${ids[i]}`, { method: 'POST' });
+      } catch (e) { /* continue */ }
+      if (mountedRef.current) setBatchProgress({ done: i + 1, total: ids.length });
+    }
+    setBatchProgress(null);
+    addToast(`Analyzed ${ids.length} session(s)`, 'success');
+    setSelectedIds(new Set());
+    const updated = await fetchSwings();
+    if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
+  }, [selectedIds, addToast]);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
@@ -759,6 +776,10 @@ export default function SessionFeedTab() {
               LABEL
             </button>
           </div>
+          <button onClick={handleBulkAnalyze} disabled={!!batchProgress}
+            style={{ padding: '3px 10px', fontSize: 9, fontWeight: 700, borderRadius: 3, border: `1px solid ${COLORS.green}40`, background: `${COLORS.green}10`, color: COLORS.green, cursor: 'pointer' }}>
+            {batchProgress ? `${batchProgress.done}/${batchProgress.total}` : 'ANALYZE'}
+          </button>
           <button onClick={handleBulkDelete}
             style={{ padding: '3px 10px', fontSize: 9, fontWeight: 700, borderRadius: 3, border: `1px solid ${COLORS.red}40`, background: 'transparent', color: COLORS.red, cursor: 'pointer', marginLeft: 'auto' }}>
             DELETE
