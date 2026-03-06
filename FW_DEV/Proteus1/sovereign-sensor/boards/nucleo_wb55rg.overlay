@@ -1,0 +1,29 @@
+/*
+ * Device tree overlay for STEVAL-PROTEUS1 sensor board.
+ *
+ * The STEVAL-PROTEUS1 connects sensors via I2C1:
+ *   - ISM330DHCX (6-axis IMU) at 0x6A
+ *   - IIS2DLPC (low-power accel) at 0x19
+ *   - IIS2MDC (magnetometer) at 0x1E
+ *   - LPS22HH (pressure) at 0x5C
+ *   - STTS751 (temperature) at 0x38
+ *
+ * Using nucleo_wb55rg as base board (same STM32WB55 SoC).
+ */
+
+&i2c1 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+
+	ism330dhcx@6a {
+		compatible = "st,ism330dhcx";
+		reg = <0x6a>;
+		int1-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+&zephyr_udc0 {
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
