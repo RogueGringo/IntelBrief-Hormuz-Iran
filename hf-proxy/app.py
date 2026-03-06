@@ -84,6 +84,11 @@ for d in [DATA_DIR, UPLOAD_DIR, BASELINE_DIR]:
 store = SwingStore(str(DATA_DIR / "swings"))
 llm = LLMManager()
 
+from classifier import MotionClassifier
+
+motion_classifier = MotionClassifier(str(DATA_DIR / "classifiers"))
+motion_classifier.load()
+
 # ─── SOVEREIGN-LIB IMPORTS (graceful) ────────────────────────
 IMUTimeSeries = None
 extract_imu_features = None
@@ -701,6 +706,15 @@ async def analyze(swing_id: str):
     cls_resp = await classify(swing_id)
     steps.append({"step": "classify", "result": cls_resp})
 
+    # Step 4: user-trained classifier (overrides rule-based if available)
+    record = store.load(swing_id)
+    embedding = (record.topology or {}).get("embedding", []) if record else []
+    if embedding and motion_classifier.get_label_counts():
+        user_prediction = motion_classifier.predict(embedding)
+        if user_prediction["label"]:
+            store.update(swing_id, classification=user_prediction["label"], classification_confidence=user_prediction["confidence"])
+            steps.append({"step": "user_classifier", "result": user_prediction})
+
     record = store.load(swing_id)
     store.update(swing_id, status="analyzed")
 
@@ -799,6 +813,82 @@ async def update_swing(swing_id: str, request: Request):
     if updates:
         store.update(swing_id, **updates)
     return {"status": "updated", "id": swing_id, **updates}
+
+
+@app.put("/api/swing/{swing_id}/label")
+async def set_label(swing_id: str, request: Request):
+    """Set or update the user label for a session."""
+    record = store.load(swing_id)
+    if not record:
+        return JSONResponse({"error": "Swing not found"}, status_code=404)
+    body = await request.json()
+    label = body.get("label", "").strip()
+    if not label:
+        return JSONResponse({"error": "Label cannot be empty"}, status_code=400)
+    store.update(swing_id, user_label=label)
+    embedding = (record.topology or {}).get("embedding", [])
+    if embedding:
+        motion_classifier.add_label(swing_id, label, embedding)
+    reclassified = False
+    if embedding:
+        prediction = motion_classifier.predict(embedding)
+        if prediction["label"]:
+            store.update(swing_id, classification=prediction["label"], classification_confidence=prediction["confidence"])
+            reclassified = True
+    return {"id": swing_id, "user_label": label, "reclassified": reclassified}
+
+
+@app.delete("/api/swing/{swing_id}/label")
+async def remove_label(swing_id: str):
+    """Remove user label from a session."""
+    record = store.load(swing_id)
+    if not record:
+        return JSONResponse({"error": "Swing not found"}, status_code=404)
+    store.update(swing_id, user_label=None)
+    motion_classifier.remove_label(swing_id)
+    return {"id": swing_id, "user_label": None}
+
+
+@app.get("/api/classifier/status")
+async def classifier_status():
+    counts = motion_classifier.get_label_counts()
+    mlp = motion_classifier._mlp
+    return {
+        "total_labeled": sum(counts.values()),
+        "classes": counts,
+        "labels": motion_classifier.get_labels(),
+        "mlp_trained": mlp is not None and "weights" in (mlp or {}),
+        "mlp_accuracy": mlp.get("accuracy") if mlp else None,
+        "mlp_trained_at": mlp.get("trained_at") if mlp else None,
+        "can_train": motion_classifier.can_train_mlp(),
+        "method": "mlp" if (mlp and "weights" in (mlp or {})) else "knn",
+    }
+
+
+@app.post("/api/classifier/train")
+async def train_classifier():
+    if not motion_classifier.can_train_mlp():
+        return JSONResponse({"error": "Need at least 2 classes and 10+ examples in one class"}, status_code=400)
+    result = motion_classifier.train_mlp()
+    return result
+
+
+@app.post("/api/classifier/reclassify")
+async def reclassify_all():
+    all_swings = store.list_all()
+    updated = 0
+    for summary in all_swings:
+        record = store.load(summary["id"])
+        if not record or record.status != "analyzed":
+            continue
+        embedding = (record.topology or {}).get("embedding", [])
+        if not embedding:
+            continue
+        prediction = motion_classifier.predict(embedding)
+        if prediction["label"]:
+            store.update(summary["id"], classification=prediction["label"], classification_confidence=prediction["confidence"])
+            updated += 1
+    return {"reclassified": updated, "total_analyzed": len(all_swings)}
 
 
 @app.get("/api/stats")
