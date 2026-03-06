@@ -857,6 +857,9 @@ async def delete_swing(swing_id: str):
     baseline_path = BASELINE_DIR / f"{swing_id}.json"
     if baseline_path.exists():
         baseline_path.unlink()
+    # Remove from classifier index
+    motion_classifier.remove_label(swing_id)
+    logger.info("deleted session %s", swing_id)
     return {"status": "deleted", "id": swing_id}
 
 
@@ -968,9 +971,11 @@ async def get_stats():
         c = s.get("classification")
         if c:
             classifications[c] = classifications.get(c, 0) + 1
+    labeled = sum(1 for s in all_swings if s.get("user_label"))
     return {
         "total_sessions": total,
         "analyzed": analyzed,
+        "labeled": labeled,
         "classifications": classifications,
         "baselines": len(list(BASELINE_DIR.glob("*.json"))),
     }
