@@ -40,7 +40,7 @@ function Header({ activeTab, setActiveTab }) {
           CONTINUOUS UPDATE
         </span>
       </div>
-      <div style={{ display: "flex", gap: 0, marginTop: 16 }}>
+      <div className="tab-bar" style={{ display: "flex", gap: 0, marginTop: 16, flexWrap: "wrap" }}>
         {TABS.map((t) => (
           <button
             key={t.id}

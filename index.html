@@ -19,6 +19,10 @@
       ::-webkit-scrollbar-thumb { background: #2a2e3a; border-radius: 3px; }
       ::-webkit-scrollbar-thumb:hover { background: #3a3e4a; }
       ::selection { background: #d4a84340; color: #e8e4dc; }
+      @media (max-width: 768px) {
+        .tab-bar { flex-wrap: wrap !important; }
+        .tab-bar button { flex: 1 1 auto !important; min-width: 80px !important; padding: 8px 10px !important; font-size: 9px !important; }
+      }
     </style>
   </head>
   <body>
