@@ -1,4 +1,4 @@
-"""Tests for MotionClassifier k-NN and persistence."""
+"""Tests for MotionClassifier k-NN, MLP, and persistence."""
 from __future__ import annotations
 
 import shutil
@@ -106,3 +106,64 @@ class TestPersistence:
         assert len(clf2.embeddings) == 2
         np.testing.assert_array_almost_equal(clf2.embeddings[0], emb1)
         np.testing.assert_array_almost_equal(clf2.embeddings[1], emb2)
+
+
+def _build_trainable_clf(tmp_dir: str) -> MotionClassifier:
+    """Build a classifier with enough data to train MLP (2 classes, 12 each)."""
+    clf = MotionClassifier(tmp_dir)
+    np.random.seed(42)
+    # Class A: centered at +1
+    for i in range(12):
+        emb = np.ones(40) + np.random.randn(40) * 0.1
+        clf.add_label(f"a{i}", "draw", emb)
+    # Class B: centered at -1
+    for i in range(12):
+        emb = -np.ones(40) + np.random.randn(40) * 0.1
+        clf.add_label(f"b{i}", "fade", emb)
+    return clf
+
+
+class TestMLP:
+    def test_can_train_requires_10(self, clf):
+        """Need >= 10 in any class AND >= 2 classes."""
+        # 0 examples
+        assert clf.can_train_mlp() is False
+        # 1 class, 10 examples
+        for i in range(10):
+            clf.add_label(f"s{i}", "draw", _random_emb())
+        assert clf.can_train_mlp() is False
+        # 2 classes, one with 10
+        clf.add_label("x1", "fade", _random_emb())
+        assert clf.can_train_mlp() is True
+
+    def test_train_mlp(self, tmp_dir):
+        clf = _build_trainable_clf(tmp_dir)
+        result = clf.train_mlp()
+        assert result["status"] == "trained"
+        assert result["n_classes"] == 2
+        assert result["accuracy"] > 0.5
+        assert clf.mlp is not None
+
+    def test_predict_uses_mlp(self, tmp_dir):
+        clf = _build_trainable_clf(tmp_dir)
+        clf.train_mlp()
+        # Query close to class A center
+        query = np.ones(40)
+        result = clf.predict(query)
+        assert result["method"] == "mlp"
+        assert result["label"] == "draw"
+        assert result["confidence"] > 0.5
+        assert "alternatives" in result
+
+    def test_mlp_save_load(self, tmp_dir):
+        clf1 = _build_trainable_clf(tmp_dir)
+        clf1.train_mlp()
+        query = np.ones(40)
+        result1 = clf1.predict(query)
+
+        clf2 = MotionClassifier(tmp_dir)
+        assert clf2.mlp is not None
+        result2 = clf2.predict(query)
+        assert result2["method"] == "mlp"
+        assert result2["label"] == result1["label"]
+        assert abs(result2["confidence"] - result1["confidence"]) < 1e-6
