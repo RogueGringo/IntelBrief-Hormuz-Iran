@@ -23,6 +23,7 @@ class SwingRecord:
     notes: str | None = None
     tags: list[str] = field(default_factory=list)
     group: str | None = None
+    user_label: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -60,6 +61,7 @@ class SwingStore:
                 "tags": data.get("tags", []),
                 "notes": data.get("notes"),
                 "group": data.get("group"),
+                "user_label": data.get("user_label"),
             })
         return records
 
