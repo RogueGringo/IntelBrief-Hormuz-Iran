@@ -1,12 +1,21 @@
 {
-  "name": "Sovereign Motion",
+  "name": "Sovereign Motion Intelligence",
   "short_name": "SovMotion",
   "description": "Topological Motion Intelligence — capture, encode, and analyze motion patterns",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0d1117",
-  "theme_color": "#c9a84c",
+  "background_color": "#0a0c10",
+  "theme_color": "#d4a843",
+  "orientation": "any",
+  "categories": ["productivity", "utilities"],
   "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",

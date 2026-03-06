@@ -120,15 +120,80 @@ export default function ProgressTab() {
   const trendArrow = (delta) => delta > 0.01 ? "▲" : delta < -0.01 ? "▼" : "—";
   const trendColor = (delta) => delta > 0.01 ? COLORS.green : delta < -0.01 ? COLORS.red : COLORS.textDim;
 
+  const exportReport = () => {
+    const w = window.open("", "_blank");
+    const rows = chartData.map(s => `
+      <tr>
+        <td>${s.label}</td>
+        <td style="text-transform:uppercase">${s.classification || "—"}</td>
+        <td>${((s.confidence || 0) * 100).toFixed(0)}%</td>
+        <td>${s.quality_score?.toFixed(3) ?? "—"}</td>
+        <td>${s.peak_accel?.toFixed(1) ?? "—"}</td>
+        <td>${s.n_phases ?? "—"}</td>
+        <td>${s.betti_0 ?? "—"} / ${s.betti_1 ?? "—"}</td>
+        <td>${s.total_persistence?.toFixed(3) ?? "—"}</td>
+      </tr>`).join("");
+    const classDist = classDistribution.map(c => `${c.name}: ${c.count} (${c.pct}%)`).join(", ");
+    w.document.write(`<!DOCTYPE html><html><head><title>Motion Intelligence Report</title>
+      <style>
+        body{font-family:system-ui,sans-serif;background:#0a0c10;color:#e8e4dc;padding:40px;max-width:900px;margin:0 auto}
+        h1{color:#d4a843;font-size:22px;border-bottom:2px solid #d4a843;padding-bottom:8px}
+        h2{color:#d4a843;font-size:16px;margin-top:30px}
+        .stat{display:inline-block;background:#12151c;border:1px solid #1e2330;border-radius:6px;padding:12px 20px;margin:4px;text-align:center}
+        .stat .n{font-size:28px;font-weight:700;color:#d4a843}
+        .stat .l{font-size:9px;color:#8a8678;letter-spacing:1px}
+        table{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px}
+        th{text-align:left;padding:6px 8px;border-bottom:1px solid #1e2330;color:#8a8678;font-weight:600}
+        td{padding:5px 8px;border-bottom:1px solid #1e233022}
+        .footer{margin-top:40px;font-size:10px;color:#8a8678;border-top:1px solid #1e2330;padding-top:12px}
+        @media print{body{background:#fff;color:#222}th{color:#666;border-color:#ccc}td{border-color:#eee}.stat{border-color:#ccc}.stat .n{color:#333}h1,h2{color:#333;border-color:#333}}
+      </style></head><body>
+      <h1>Motion Intelligence Report</h1>
+      <p style="color:#8a8678;font-size:12px">${sessions.length} sessions analyzed &middot; Generated ${new Date().toLocaleString()}</p>
+      <div style="margin:20px 0">
+        <div class="stat"><div class="l">SESSIONS</div><div class="n">${summaryStats.totalSessions}</div></div>
+        <div class="stat"><div class="l">AVG CONFIDENCE</div><div class="n">${(summaryStats.avgConfidence * 100).toFixed(0)}%</div></div>
+        <div class="stat"><div class="l">AVG QUALITY</div><div class="n">${summaryStats.avgQuality?.toFixed(2) ?? "N/A"}</div></div>
+        <div class="stat"><div class="l">LATEST</div><div class="n" style="font-size:14px;text-transform:uppercase">${summaryStats.latestClassification || "—"}</div></div>
+      </div>
+      <h2>Classification Distribution</h2>
+      <p style="font-size:12px">${classDist}</p>
+      <h2>Session Detail</h2>
+      <table>
+        <thead><tr><th>Session</th><th>Class</th><th>Conf</th><th>Quality</th><th>Peak G</th><th>Phases</th><th>B0/B1</th><th>Persist</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="footer">Sovereign Motion Intelligence &middot; Powered by sovereign-lib topological analysis</div>
+      </body></html>`);
+    w.document.close();
+    w.print();
+  };
+
   return (
     <div style={{ padding: 20, color: COLORS.text }}>
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ color: COLORS.gold, fontSize: 20, fontWeight: 700, letterSpacing: 1, margin: 0 }}>
-          PROGRESS TRACKING
-        </h2>
-        <p style={{ color: COLORS.textDim, fontSize: 12, margin: "4px 0 0", letterSpacing: 0.5 }}>
-          Multi-Session Trend Analysis &middot; {sessions.length} sessions
-        </p>
+      <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h2 style={{ color: COLORS.gold, fontSize: 20, fontWeight: 700, letterSpacing: 1, margin: 0 }}>
+            PROGRESS TRACKING
+          </h2>
+          <p style={{ color: COLORS.textDim, fontSize: 12, margin: "4px 0 0", letterSpacing: 0.5 }}>
+            Multi-Session Trend Analysis &middot; {sessions.length} sessions
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={exportReport}
+            style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, letterSpacing: 1, border: `1px solid ${COLORS.gold}40`, borderRadius: 4, background: `${COLORS.gold}10`, color: COLORS.gold, cursor: "pointer" }}
+          >
+            EXPORT REPORT
+          </button>
+          <button
+            onClick={() => { fetch("/api/export/csv").then(r => r.text()).then(csv => { const blob = new Blob([csv], { type: "text/csv" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `motion_export_${new Date().toISOString().slice(0, 10)}.csv`; a.click(); }); }}
+            style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, letterSpacing: 1, border: `1px solid ${COLORS.border}`, borderRadius: 4, background: "transparent", color: COLORS.textDim, cursor: "pointer" }}
+          >
+            CSV EXPORT
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards */}
