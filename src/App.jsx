@@ -65,6 +65,82 @@ function Header({ activeTab, setActiveTab }) {
 
 // ─── STUB TAB COMPONENTS ───────────────────────────────────
 
+function GettingStartedCard() {
+  const [stats, setStats] = useState(null);
+  const [sensorOk, setSensorOk] = useState(null);
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/stats').then(r => r.json()).catch(() => null),
+      fetch('/api/sensor/status').then(r => r.json()).catch(() => null),
+    ]).then(([s, sensor]) => {
+      setStats(s);
+      setSensorOk(sensor?.connected ?? false);
+    });
+  }, []);
+
+  if (!stats) return null;
+
+  const steps = [
+    { done: sensorOk, label: 'Connect PROTEUS1 sensor via USB', detail: 'Plug in the STEVAL-PROTEUS1 and check Sensor Nodes tab' },
+    { done: stats.total_sessions > 0, label: 'Capture or upload a motion session', detail: 'Use Auto Capture or drag CSV files into Session Feed' },
+    { done: stats.analyzed > 0, label: 'Analyze a session', detail: 'Click Analyze to extract 91 features + topological encoding' },
+    { done: stats.baselines > 0, label: 'Save a baseline', detail: 'Mark a good session as baseline for comparison' },
+    { done: stats.total_sessions >= 3, label: 'Build a pattern library (3+ sessions)', detail: 'More sessions = better consistency analysis in Motion Patterns' },
+  ];
+
+  const completed = steps.filter(s => s.done).length;
+  const allDone = completed === steps.length;
+
+  if (allDone) return null;
+
+  return (
+    <div style={{
+      background: COLORS.surface, border: `1px solid ${COLORS.gold}40`,
+      borderLeft: `3px solid ${COLORS.green}`, borderRadius: 6,
+      padding: 16, marginBottom: 20,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 2, color: COLORS.green }}>
+          GETTING STARTED
+        </span>
+        <span style={{ fontSize: 11, color: COLORS.textMuted }}>
+          {completed}/{steps.length} complete
+        </span>
+        <div style={{ flex: 1, height: 4, background: COLORS.border, borderRadius: 2, marginLeft: 8 }}>
+          <div style={{ width: `${(completed / steps.length) * 100}%`, height: '100%', background: COLORS.green, borderRadius: 2, transition: 'width 0.3s' }} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {steps.map((step, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: step.done ? 0.5 : 1 }}>
+            <span style={{
+              width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 10, fontWeight: 700,
+              background: step.done ? `${COLORS.green}20` : `${COLORS.gold}15`,
+              color: step.done ? COLORS.green : COLORS.gold,
+              border: `1px solid ${step.done ? COLORS.green : COLORS.gold}40`,
+            }}>
+              {step.done ? '\u2713' : i + 1}
+            </span>
+            <div>
+              <div style={{ fontSize: 12, color: step.done ? COLORS.textMuted : COLORS.text, fontWeight: 600, textDecoration: step.done ? 'line-through' : 'none' }}>
+                {step.label}
+              </div>
+              {!step.done && (
+                <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 1 }}>
+                  {step.detail}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ThesisTab() {
   const cardStyle = {
     background: COLORS.surface,
@@ -93,6 +169,7 @@ function ThesisTab() {
 
   return (
     <div style={{ padding: 20, color: COLORS.text }}>
+      <GettingStartedCard />
 
       {/* Section 1: Core Thesis */}
       <div style={cardStyle}>
