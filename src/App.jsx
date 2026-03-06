@@ -4,6 +4,7 @@ import { COLORS, CATEGORY_COLORS, CLASS_COLORS } from "./theme.js";
 import MotionPatternsTab from './PatternsTab.jsx';
 import SessionFeedTab from './LiveFeedTab.jsx';
 import ProgressTab from './ProgressTab.jsx';
+import SettingsTab from './SettingsTab.jsx';
 import ErrorBoundary from './ErrorBoundary.jsx';
 
 // ─── HEADER ────────────────────────────────────────────────
@@ -16,6 +17,7 @@ const TABS = [
   { id: 'progress', label: 'PROGRESS' },
   { id: 'monitor', label: 'SIGNAL MONITOR' },
   { id: 'feed', label: 'SESSION FEED' },
+  { id: 'settings', label: 'SETTINGS' },
 ];
 
 function Header({ activeTab, setActiveTab }) {
@@ -1653,7 +1655,7 @@ function StatusBar() {
         SOVEREIGN MOTION v1.0
       </span>
       <span style={{ color: COLORS.textMuted }}>
-        [1-8] switch tabs
+        [1-9] switch tabs
       </span>
     </div>
   );
@@ -1668,7 +1670,7 @@ export default function App() {
     const handler = (e) => {
       // Don't capture if user is typing in an input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-      const tabMap = { '1': 'thesis', '2': 'sensors', '3': 'motionPatterns', '4': 'modelRegistry', '5': 'topoChains', '6': 'progress', '7': 'monitor', '8': 'feed' };
+      const tabMap = { '1': 'thesis', '2': 'sensors', '3': 'motionPatterns', '4': 'modelRegistry', '5': 'topoChains', '6': 'progress', '7': 'monitor', '8': 'feed', '9': 'settings' };
       if (tabMap[e.key]) {
         e.preventDefault();
         setActiveTab(tabMap[e.key]);
@@ -1691,6 +1693,7 @@ export default function App() {
           {activeTab === 'progress' && <ProgressTab />}
           {activeTab === 'monitor' && <SignalMonitorTab />}
           {activeTab === 'feed' && <SessionFeedTab />}
+          {activeTab === 'settings' && <SettingsTab />}
         </ErrorBoundary>
       </div>
       <StatusBar />

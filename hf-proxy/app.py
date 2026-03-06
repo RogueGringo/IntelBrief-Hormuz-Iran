@@ -53,6 +53,8 @@ DATA_DIR = Path(__file__).parent / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 BASELINE_DIR = DATA_DIR / "baselines"
 
+SETTINGS_FILE = DATA_DIR / "settings.json"
+
 # Create data directories on startup
 for d in [DATA_DIR, UPLOAD_DIR, BASELINE_DIR]:
     d.mkdir(parents=True, exist_ok=True)
@@ -738,6 +740,69 @@ async def get_stats():
         "classifications": classifications,
         "baselines": len(list(BASELINE_DIR.glob("*.json"))),
     }
+
+
+DEFAULT_SETTINGS = {
+    "sensor": {
+        "threshold_mg": 1500,
+        "capture_duration_s": 5,
+        "cooldown_s": 2,
+        "sample_rate_hz": 500,
+        "auto_analyze": True,
+    },
+    "analysis": {
+        "quality_threshold": 0.5,
+        "min_samples": 100,
+        "phase_detection": True,
+        "topology_encoding": True,
+        "auto_classify": True,
+    },
+    "display": {
+        "chart_height": 200,
+        "downsample_factor": 2,
+        "show_phase_overlay": True,
+        "dark_theme": True,
+    },
+    "export": {
+        "include_raw_features": True,
+        "include_topology": True,
+        "csv_separator": ",",
+    },
+}
+
+
+def _load_settings() -> dict:
+    if SETTINGS_FILE.exists():
+        try:
+            saved = json.loads(SETTINGS_FILE.read_text())
+            # Merge with defaults to pick up new keys
+            merged = {}
+            for section, defaults in DEFAULT_SETTINGS.items():
+                merged[section] = {**defaults, **saved.get(section, {})}
+            return merged
+        except Exception:
+            pass
+    return {**DEFAULT_SETTINGS}
+
+
+def _save_settings(settings: dict) -> None:
+    SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+
+
+@app.get("/api/settings")
+async def get_settings():
+    return _load_settings()
+
+
+@app.put("/api/settings")
+async def update_settings(request: Request):
+    body = await request.json()
+    current = _load_settings()
+    for section, values in body.items():
+        if section in current and isinstance(values, dict):
+            current[section].update(values)
+    _save_settings(current)
+    return {"status": "saved", "settings": current}
 
 
 @app.get("/api/trends")
