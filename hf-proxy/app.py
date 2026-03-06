@@ -186,14 +186,12 @@ async def health():
 
 
 # ─── SENSOR STATUS ───────────────────────────────────────────
-@app.get("/api/sensor/status")
-async def sensor_status():
-    """Query connected Sovereign Sensor via USB serial."""
+def _get_sensor_status():
+    """Query connected Sovereign Sensor via USB serial (sync helper)."""
     try:
         import serial
         import serial.tools.list_ports
 
-        # Find Sovereign Sensor
         port_name = None
         for port in serial.tools.list_ports.comports():
             hwid = (port.hwid or "").upper()
@@ -208,15 +206,13 @@ async def sensor_status():
         ser.dtr = True
         import time as _time
         _time.sleep(0.5)
-        ser.reset_input_buffer()  # Flush any pending session data
+        ser.reset_input_buffer()
 
-        # Send GET STATUS
         ser.write(b"GET STATUS\n")
         _time.sleep(1.0)
         resp = ser.read(ser.in_waiting or 512).decode("utf-8", errors="replace").strip()
         ser.close()
 
-        # Extract only the STATUS line (skip any session data in buffer)
         for line in resp.split("\n"):
             line = line.strip()
             if line.startswith("STATUS "):
@@ -226,7 +222,6 @@ async def sensor_status():
         if not resp.startswith("STATUS"):
             return {"connected": True, "port": port_name, "raw": resp}
 
-        # Parse STATUS response
         status = {"connected": True, "port": port_name}
         for part in resp.replace("STATUS ", "").split():
             if "=" in part:
@@ -237,6 +232,12 @@ async def sensor_status():
 
     except Exception as e:
         return {"connected": False, "error": str(e)}
+
+
+@app.get("/api/sensor/status")
+async def sensor_status():
+    """Query connected Sovereign Sensor via USB serial."""
+    return _get_sensor_status()
 
 
 @app.post("/api/sensor/command")
@@ -999,6 +1000,90 @@ async def get_signals():
         elif sig["id"] == "gpu_vram":
             sig["value"] = round(llm_status.gpu_vram_used_bytes / 1024 / 1024, 1)
             sig["status"] = "green" if llm_status.gpu_vram_used_bytes > 0 else "gray"
+
+    # Add dynamic sensor and quality signals from most recent analyzed session
+    analyzed = [s for s in all_swings if s.get("status") == "analyzed"]
+    if analyzed:
+        latest = store.load(analyzed[-1]["id"])
+        if latest:
+            feat = latest.features or {}
+            topo = latest.topology or {}
+
+            # IMU signals from latest session
+            if feat.get("sample_rate_hz"):
+                signals.append({
+                    "id": "latest_sample_rate", "category": "imu",
+                    "label": "Latest Sample Rate",
+                    "value": f"{feat['sample_rate_hz']:.0f} Hz",
+                    "severity": "green" if 400 < feat["sample_rate_hz"] < 600 else "yellow",
+                })
+            if feat.get("duration_s"):
+                signals.append({
+                    "id": "latest_duration", "category": "imu",
+                    "label": "Latest Duration",
+                    "value": f"{feat['duration_s']:.1f}s",
+                    "severity": "green" if feat["duration_s"] > 2 else "yellow",
+                })
+
+            # Feature pipeline signals
+            n_features = len(feat)
+            signals.append({
+                "id": "feature_count", "category": "features",
+                "label": "Features Extracted",
+                "value": n_features,
+                "severity": "green" if n_features >= 80 else "yellow" if n_features > 0 else "red",
+            })
+            if feat.get("accel_mag_max"):
+                signals.append({
+                    "id": "peak_accel", "category": "features",
+                    "label": "Peak Acceleration",
+                    "value": f"{feat['accel_mag_max']:.0f} mg",
+                    "severity": "green",
+                })
+
+            # Topology signals
+            b0 = topo.get("betti_0", topo.get("persistence", {}).get("betti_0"))
+            b1 = topo.get("betti_1", topo.get("persistence", {}).get("betti_1"))
+            if b0 is not None:
+                signals.append({
+                    "id": "betti_0", "category": "topology",
+                    "label": "Betti-0 (Components)",
+                    "value": b0,
+                    "severity": "green",
+                })
+            if b1 is not None:
+                signals.append({
+                    "id": "betti_1", "category": "topology",
+                    "label": "Betti-1 (Loops)",
+                    "value": b1,
+                    "severity": "green" if b1 > 0 else "yellow",
+                })
+            if topo.get("total_persistence"):
+                signals.append({
+                    "id": "total_persistence", "category": "topology",
+                    "label": "Total Persistence",
+                    "value": f"{topo['total_persistence']:.3f}",
+                    "severity": "green",
+                })
+            if topo.get("embedding"):
+                signals.append({
+                    "id": "embedding_dim", "category": "topology",
+                    "label": "Embedding Dimension",
+                    "value": f"{len(topo['embedding'])}D",
+                    "severity": "green",
+                })
+
+    # Add sensor connectivity signal
+    try:
+        sensor_status = _get_sensor_status()
+        signals.append({
+            "id": "sensor_connected", "category": "imu",
+            "label": "PROTEUS1 Sensor",
+            "value": "Connected" if sensor_status.get("connected") else "Disconnected",
+            "severity": "green" if sensor_status.get("connected") else "red",
+        })
+    except Exception:
+        pass
 
     return {"signals": signals, "categories": CATEGORY_META, "timestamp": datetime.now(timezone.utc).isoformat()}
 
