@@ -780,6 +780,34 @@ export default function SessionFeedTab() {
             style={{ padding: '3px 10px', fontSize: 9, fontWeight: 700, borderRadius: 3, border: `1px solid ${COLORS.green}40`, background: `${COLORS.green}10`, color: COLORS.green, cursor: 'pointer' }}>
             {batchProgress ? `${batchProgress.done}/${batchProgress.total}` : 'ANALYZE'}
           </button>
+          <button
+            onClick={async () => {
+              const ids = [...selectedIds];
+              let accepted = 0;
+              for (const sid of ids) {
+                const s = swings.find(x => (x.id || x.swing_id) === sid);
+                if (s?.classification && (!s.user_label || s.user_label !== s.classification)) {
+                  await fetch(`/api/swing/${sid}/label`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ label: s.classification }),
+                  });
+                  accepted++;
+                }
+              }
+              if (accepted > 0) {
+                addToast(`Accepted ${accepted} classification(s) as labels`, 'success');
+                setSelectedIds(new Set());
+                const updated = await fetchSwings();
+                if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
+              } else {
+                addToast('No unconfirmed classifications in selection', 'info');
+              }
+            }}
+            style={{ padding: '3px 10px', fontSize: 9, fontWeight: 700, borderRadius: 3, border: `1px solid ${COLORS.blue}40`, background: `${COLORS.blue}10`, color: COLORS.blue, cursor: 'pointer' }}
+          >
+            ACCEPT LABELS
+          </button>
           <button onClick={handleBulkDelete}
             style={{ padding: '3px 10px', fontSize: 9, fontWeight: 700, borderRadius: 3, border: `1px solid ${COLORS.red}40`, background: 'transparent', color: COLORS.red, cursor: 'pointer', marginLeft: 'auto' }}>
             DELETE
@@ -1289,13 +1317,40 @@ ${report.coaching_notes ? `<h2>Coaching Notes</h2><p>${report.coaching_notes}</p
                         <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
                           CLASSIFICATION
                         </div>
-                        <div style={{ display: 'flex', gap: 16 }}>
+                        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
                           <span style={{ fontSize: 12, color: COLORS.textDim }}>
                             Class: <strong style={{ color: classColor }}>{swing.classification}</strong>
                           </span>
                           {swing.classification_confidence != null && (
                             <span style={{ fontSize: 12, color: COLORS.textDim }}>
                               Confidence: <strong style={{ color: COLORS.text }}>{swing.classification_confidence}%</strong>
+                            </span>
+                          )}
+                          {swing.classification && (!swing.user_label || swing.user_label !== swing.classification) && (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                await fetch(`/api/swing/${id}/label`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ label: swing.classification }),
+                                });
+                                addToast(`Accepted: ${swing.classification}`, 'success');
+                                loadSwings();
+                              }}
+                              style={{
+                                padding: '3px 10px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+                                letterSpacing: 0.5, cursor: 'pointer',
+                                background: `${COLORS.green}15`, border: `1px solid ${COLORS.green}40`,
+                                color: COLORS.green,
+                              }}
+                            >
+                              ACCEPT AS LABEL
+                            </button>
+                          )}
+                          {swing.user_label === swing.classification && (
+                            <span style={{ fontSize: 9, color: COLORS.green, fontWeight: 600 }}>
+                              &#10003; Confirmed
                             </span>
                           )}
                         </div>
