@@ -533,16 +533,30 @@ export default function SessionFeedTab() {
                     )}
                   </div>
 
-                  {/* Classification badge */}
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, letterSpacing: 1,
-                    padding: '3px 10px', borderRadius: 4,
-                    background: swing.classification ? `${classColor}20` : 'transparent',
-                    color: swing.classification ? classColor : COLORS.textMuted,
-                    border: swing.classification ? 'none' : `1px solid ${COLORS.border}`,
-                  }}>
-                    {swing.classification || '\u2014'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {(swing.tags || []).slice(0, 3).map((tag, ti) => (
+                      <span key={ti} style={{
+                        fontSize: 8, padding: '1px 6px', borderRadius: 8,
+                        background: `${COLORS.blue}12`, color: COLORS.blue,
+                        border: `1px solid ${COLORS.blue}20`,
+                      }}>
+                        {tag}
+                      </span>
+                    ))}
+                    {(swing.tags || []).length > 3 && (
+                      <span style={{ fontSize: 8, color: COLORS.textMuted }}>+{swing.tags.length - 3}</span>
+                    )}
+                    {/* Classification badge */}
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: 1,
+                      padding: '3px 10px', borderRadius: 4,
+                      background: swing.classification ? `${classColor}20` : 'transparent',
+                      color: swing.classification ? classColor : COLORS.textMuted,
+                      border: swing.classification ? 'none' : `1px solid ${COLORS.border}`,
+                    }}>
+                      {swing.classification || '\u2014'}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Ground truth row */}
@@ -874,6 +888,78 @@ export default function SessionFeedTab() {
                         </div>
                       </div>
                     )}
+
+                    {/* Tags */}
+                    <div style={{ marginTop: 12 }} onClick={e => e.stopPropagation()}>
+                      <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                        TAGS
+                      </div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {(swing.tags || []).map((tag, ti) => (
+                          <span key={ti} style={{
+                            fontSize: 9, padding: '2px 8px', borderRadius: 10,
+                            background: `${COLORS.blue}15`, color: COLORS.blue,
+                            border: `1px solid ${COLORS.blue}25`,
+                            display: 'flex', alignItems: 'center', gap: 4,
+                          }}>
+                            {tag}
+                            <span style={{ cursor: 'pointer', opacity: 0.6 }} onClick={async () => {
+                              const newTags = (swing.tags || []).filter((_, i) => i !== ti);
+                              await fetch(`/api/swing/${id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ tags: newTags }),
+                              });
+                              loadSwings();
+                            }}>&times;</span>
+                          </span>
+                        ))}
+                        <button onClick={() => {
+                          const tag = prompt('Add tag:');
+                          if (!tag) return;
+                          const newTags = [...(swing.tags || []), tag.trim()];
+                          fetch(`/api/swing/${id}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ tags: newTags }),
+                          }).then(() => loadSwings());
+                        }} style={{
+                          fontSize: 9, padding: '2px 8px', borderRadius: 10,
+                          background: 'transparent', color: COLORS.textMuted,
+                          border: `1px dashed ${COLORS.border}`, cursor: 'pointer',
+                        }}>
+                          + tag
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    <div style={{ marginTop: 12 }} onClick={e => e.stopPropagation()}>
+                      <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                        NOTES
+                      </div>
+                      <textarea
+                        defaultValue={full.notes || swing.notes || ''}
+                        placeholder="Add session notes..."
+                        onBlur={async (e) => {
+                          const val = e.target.value.trim();
+                          if (val !== (full.notes || swing.notes || '')) {
+                            await fetch(`/api/swing/${id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ notes: val || null }),
+                            });
+                          }
+                        }}
+                        style={{
+                          width: '100%', minHeight: 60, resize: 'vertical',
+                          fontSize: 11, lineHeight: 1.5, fontFamily: 'inherit',
+                          padding: '8px 10px', borderRadius: 6,
+                          background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                          color: COLORS.textDim, outline: 'none',
+                        }}
+                      />
+                    </div>
 
                     {/* IMU Waveform Chart with Phase Overlay */}
                     <IMUChart swingId={id} phases={phases} />

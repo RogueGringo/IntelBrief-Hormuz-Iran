@@ -20,6 +20,8 @@ class SwingRecord:
     coaching_notes: str | None = None
     session_meta: dict[str, Any] | None = None
     status: str = "ingested"
+    notes: str | None = None
+    tags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -40,7 +42,10 @@ class SwingStore:
         if not path.exists():
             return None
         data = json.loads(path.read_text())
-        return SwingRecord(**data)
+        # Filter to only known fields for backwards compatibility
+        known = {f.name for f in SwingRecord.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in data.items() if k in known}
+        return SwingRecord(**filtered)
 
     def list_all(self) -> list[dict[str, Any]]:
         records = []
@@ -51,6 +56,8 @@ class SwingStore:
                 "filename": data["filename"],
                 "status": data["status"],
                 "classification": data.get("classification"),
+                "tags": data.get("tags", []),
+                "notes": data.get("notes"),
             })
         return records
 

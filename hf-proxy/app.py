@@ -704,6 +704,23 @@ async def delete_swing(swing_id: str):
     return {"status": "deleted", "id": swing_id}
 
 
+@app.patch("/api/swing/{swing_id}")
+async def update_swing(swing_id: str, request: Request):
+    """Update session notes and tags."""
+    record = store.load(swing_id)
+    if not record:
+        return JSONResponse({"error": "Swing not found"}, status_code=404)
+    body = await request.json()
+    updates = {}
+    if "notes" in body:
+        updates["notes"] = body["notes"]
+    if "tags" in body:
+        updates["tags"] = body["tags"]
+    if updates:
+        store.update(swing_id, **updates)
+    return {"status": "updated", "id": swing_id, **updates}
+
+
 @app.get("/api/stats")
 async def get_stats():
     """Aggregate statistics across all sessions."""
