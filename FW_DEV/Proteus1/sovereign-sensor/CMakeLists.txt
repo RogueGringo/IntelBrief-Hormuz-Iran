@@ -14,6 +14,7 @@ target_sources(app PRIVATE
     src/transport/usb_serial.c
     src/transport/protocol.c
     src/transport/ble_service.c
+    # src/storage/flash_store.c  # Enable when QSPI flash is configured
 )
 
 target_include_directories(app PRIVATE include)

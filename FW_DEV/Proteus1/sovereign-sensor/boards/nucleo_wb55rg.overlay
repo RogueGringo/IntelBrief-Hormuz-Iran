@@ -69,6 +69,14 @@
 	current-speed = <115200>;
 };
 
+/*
+ * QuadSPI NOR flash: MX25R6435F 64Mbit (8MB)
+ * QSPI: CLK=PA3, IO0=PB9, IO1=PD5, IO2=PD6, IO3=PD7, NCS=PB11
+ * TODO: Enable when custom pinctrl with PD5-7 QSPI pins is added.
+ *       The nucleo_wb55rg pinctrl lacks PD5-7 QSPI definitions.
+ *       Need stm32wb5mmghx-pinctrl.dtsi for these pins.
+ */
+
 &zephyr_udc0 {
 	cdc_acm_uart0: cdc_acm_uart0 {
 		compatible = "zephyr,cdc-acm-uart";
