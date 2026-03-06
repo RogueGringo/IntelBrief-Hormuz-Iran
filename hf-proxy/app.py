@@ -1045,9 +1045,16 @@ async def list_webhooks():
 @app.post("/api/webhooks")
 async def add_webhook(request: Request):
     body = await request.json()
-    url = body.get("url")
+    url = body.get("url", "").strip()
     if not url:
         return JSONResponse({"error": "url is required"}, status_code=400)
+    # Validate webhook URL — must be HTTPS in production, block internal IPs
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return JSONResponse({"error": "url must use http or https"}, status_code=400)
+    if parsed.hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1") or (parsed.hostname or "").startswith("192.168.") or (parsed.hostname or "").startswith("10."):
+        return JSONResponse({"error": "Webhook URLs cannot target internal/private addresses"}, status_code=400)
     hooks = _load_webhooks()
     hook = {
         "id": str(len(hooks) + 1),
