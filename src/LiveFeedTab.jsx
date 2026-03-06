@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchSwings, fetchSwing, ingestSwing, analyzeSwing, coachSwing, getHealth } from './DataService.jsx';
 import { COLORS, CLASS_COLORS } from './theme.js';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceArea } from 'recharts';
+import { useToast } from './Toasts.jsx';
 
 const PHASE_COLORS_CHART = {
   idle: '#555555', onset: '#339af0', load: '#845ef7',
@@ -156,6 +157,7 @@ export default function SessionFeedTab() {
   const [actionLoading, setActionLoading] = useState({});
   const fileInputRef = useRef(null);
   const mountedRef = useRef(true);
+  const { addToast } = useToast();
 
   useEffect(() => {
     mountedRef.current = true;
@@ -199,21 +201,24 @@ export default function SessionFeedTab() {
       if (mountedRef.current) setUploadProgress({ done: i + 1, total });
     }
     setUploadProgress(null);
+    addToast(`Uploaded ${total} session${total > 1 ? 's' : ''}`, 'success');
     const updated = await fetchSwings();
     if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
-  }, []);
+  }, [addToast]);
 
   const handleAnalyze = useCallback(async (id) => {
     setActionLoading(prev => ({ ...prev, [id]: 'analyzing' }));
     try {
       await analyzeSwing(id);
+      addToast(`Analysis complete: ${id.slice(0, 8)}`, 'success');
       const updated = await fetchSwings();
       if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
     } catch (e) {
+      addToast(`Analysis failed: ${e.message}`, 'error');
       console.error('Analyze failed:', e);
     }
     if (mountedRef.current) setActionLoading(prev => ({ ...prev, [id]: null }));
-  }, []);
+  }, [addToast]);
 
   const handleCoach = useCallback(async (id) => {
     setActionLoading(prev => ({ ...prev, [id]: 'coaching' }));
@@ -817,7 +822,7 @@ ${report.coaching_notes ? `<h2>Coaching Notes</h2><p>${report.coaching_notes}</p
                     onClick={async () => {
                       if (!confirm(`Delete session ${id}? This cannot be undone.`)) return;
                       await fetch(`/api/swing/${id}`, { method: 'DELETE' });
-                      // Direct fetch bypasses cache
+                      addToast('Session deleted', 'info');
                       const resp = await fetch('/api/swings');
                       const updated = await resp.json();
                       if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);

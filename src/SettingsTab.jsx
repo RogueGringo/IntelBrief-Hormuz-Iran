@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { COLORS } from "./theme.js";
+import { useToast } from "./Toasts.jsx";
 
 const CARD = {
   background: COLORS.surface,
@@ -68,6 +69,7 @@ export default function SettingsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const { addToast } = useToast();
   const [health, setHealth] = useState(null);
 
   useEffect(() => {
@@ -98,8 +100,10 @@ export default function SettingsTab() {
         body: JSON.stringify(settings),
       });
       setSaved(true);
+      addToast("Settings saved", "success");
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
+      addToast("Failed to save settings", "error");
       console.error("Save settings failed:", e);
     }
     setSaving(false);
