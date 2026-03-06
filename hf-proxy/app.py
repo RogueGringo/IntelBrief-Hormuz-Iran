@@ -792,6 +792,16 @@ def _save_webhooks(hooks: list[dict]) -> None:
     WEBHOOKS_FILE.write_text(json.dumps(hooks, indent=2))
 
 
+def _count_phases(phases_list: list) -> dict:
+    """Count samples per motion phase label."""
+    counts: dict[str, int] = {}
+    for p in phases_list:
+        label = p.get("label") or p.get("phase") or "unknown"
+        n = p.get("samples", p.get("count", 1))
+        counts[label] = counts.get(label, 0) + n
+    return counts
+
+
 async def _fire_webhook(event: str, payload: dict) -> None:
     """Fire all registered webhooks for an event type."""
     import aiohttp
@@ -940,6 +950,7 @@ async def get_trends():
             "betti_1": pers.get("betti_1", topo.get("betti_1")),
             "total_persistence": topo.get("total_persistence"),
             "n_phases": len(phases.get("phases", [])),
+            "phase_counts": _count_phases(phases.get("phases", [])),
             "embedding_norm": sum(x ** 2 for x in emb) ** 0.5 if emb else None,
             "tags": record.tags,
         })
