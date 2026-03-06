@@ -3,6 +3,7 @@ import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fet
 import { COLORS, CATEGORY_COLORS, CLASS_COLORS } from "./theme.js";
 import MotionPatternsTab from './PatternsTab.jsx';
 import SessionFeedTab from './LiveFeedTab.jsx';
+import ErrorBoundary from './ErrorBoundary.jsx';
 
 // ─── HEADER ────────────────────────────────────────────────
 const TABS = [
@@ -1679,13 +1680,15 @@ export default function App() {
     <div style={{ minHeight: '100vh', background: COLORS.bg, color: COLORS.text, paddingBottom: 24 }}>
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px 40px' }}>
-        {activeTab === 'thesis' && <ThesisTab />}
-        {activeTab === 'sensors' && <SensorNodesTab />}
-        {activeTab === 'motionPatterns' && <MotionPatternsTab />}
-        {activeTab === 'modelRegistry' && <ModelRegistryTab />}
-        {activeTab === 'topoChains' && <TopologyChainsTab />}
-        {activeTab === 'monitor' && <SignalMonitorTab />}
-        {activeTab === 'feed' && <SessionFeedTab />}
+        <ErrorBoundary key={activeTab}>
+          {activeTab === 'thesis' && <ThesisTab />}
+          {activeTab === 'sensors' && <SensorNodesTab />}
+          {activeTab === 'motionPatterns' && <MotionPatternsTab />}
+          {activeTab === 'modelRegistry' && <ModelRegistryTab />}
+          {activeTab === 'topoChains' && <TopologyChainsTab />}
+          {activeTab === 'monitor' && <SignalMonitorTab />}
+          {activeTab === 'feed' && <SessionFeedTab />}
+        </ErrorBoundary>
       </div>
       <StatusBar />
     </div>
