@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentPlan, fetchAgentDashboard, ingestSwing, analyzeSwing, coachSwing, compareSwings, swapModel, triggerDistill, triggerAgentLoop, classifyText } from './DataService.jsx';
+import { useState, useEffect, useCallback } from "react";
+import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentPlan, fetchAgentDashboard, ingestSwing, analyzeSwing, coachSwing, compareSwings, swapModel, triggerDistill, triggerAgentLoop, classifyText, CHAIN_TERMS } from './DataService.jsx';
 import { COLORS, CATEGORY_COLORS, CLASS_COLORS } from "./theme.js";
 import MotionPatternsTab from './PatternsTab.jsx';
 
@@ -354,10 +354,313 @@ function ModelRegistryTab() {
 }
 
 function TopologyChainsTab() {
-  return <div style={{ padding: 20, color: COLORS.text }}>
-    <h2 style={{ color: COLORS.gold }}>TOPOLOGY CHAINS</h2>
-    <p style={{ color: COLORS.textDim }}>Topological signature visualization — implementation pending.</p>
-  </div>;
+  const [swings, setSwings] = useState([]);
+  const [selectedSwingId, setSelectedSwingId] = useState('');
+  const [swingData, setSwingData] = useState(null);
+  const [activeChain, setActiveChain] = useState('imu_integrity');
+  const [compareA, setCompareA] = useState('');
+  const [compareB, setCompareB] = useState('');
+  const [compareResult, setCompareResult] = useState(null);
+  const [comparing, setComparing] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const CHAINS = [
+    { id: 'imu_integrity', label: 'IMU Integrity', cascade: 'Sensor health \u2192 Feature reliability \u2192 Topology validity' },
+    { id: 'kinematic', label: 'Kinematic', cascade: 'Phase detection \u2192 Segment modeling \u2192 Motion reconstruction' },
+    { id: 'persistence', label: 'Persistence', cascade: 'Point cloud quality \u2192 Homology computation \u2192 Signature stability' },
+    { id: 'sheaf_coherence', label: 'Sheaf Coherence', cascade: 'Joint fiber bundles \u2192 Restriction maps \u2192 Global coherence' },
+    { id: 'llm_confidence', label: 'LLM Confidence', cascade: 'Embedding quality \u2192 Classification certainty \u2192 Coaching reliability' },
+  ];
+
+  useEffect(() => {
+    fetchSwings().then(data => setSwings(data || []));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedSwingId) { setSwingData(null); return; }
+    setLoading(true);
+    fetchSwing(selectedSwingId).then(data => {
+      setSwingData(data);
+      setLoading(false);
+    });
+  }, [selectedSwingId]);
+
+  const handleCompare = async () => {
+    if (!compareA || !compareB) return;
+    setComparing(true);
+    setCompareResult(null);
+    try {
+      const result = await compareSwings(compareA, compareB);
+      setCompareResult(result);
+    } catch (e) {
+      setCompareResult({ error: e.message });
+    }
+    setComparing(false);
+  };
+
+  const cardStyle = {
+    background: COLORS.surface,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 6,
+    padding: 16,
+    marginBottom: 16,
+  };
+
+  const selectStyle = {
+    background: COLORS.surface,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 4,
+    color: COLORS.text,
+    padding: '6px 10px',
+    fontSize: 12,
+    minWidth: 200,
+  };
+
+  const topo = swingData?.topology;
+
+  const dimColors = [COLORS.blue, COLORS.purple, COLORS.gold];
+
+  const coherenceColor = (v) => v > 0.8 ? COLORS.green : v >= 0.5 ? '#e0c040' : COLORS.red;
+
+  return (
+    <div style={{ padding: 20, color: COLORS.text }}>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ color: COLORS.gold, fontSize: 20, fontWeight: 700, letterSpacing: 1, margin: 0 }}>
+          TOPOLOGY CHAINS
+        </h2>
+        <p style={{ color: COLORS.textDim, fontSize: 12, margin: '4px 0 0', letterSpacing: 0.5 }}>
+          Topological Signature Visualization
+        </p>
+      </div>
+
+      {/* Chain Selector */}
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+          {CHAINS.map(ch => (
+            <button
+              key={ch.id}
+              onClick={() => setActiveChain(ch.id)}
+              style={{
+                flex: 1,
+                padding: '8px 6px',
+                background: activeChain === ch.id ? `${COLORS.gold}20` : 'transparent',
+                border: `1px solid ${activeChain === ch.id ? COLORS.gold : COLORS.border}`,
+                borderRadius: 4,
+                color: activeChain === ch.id ? COLORS.gold : COLORS.textDim,
+                fontSize: 10,
+                fontWeight: 600,
+                letterSpacing: 0.8,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              {ch.label}
+            </button>
+          ))}
+        </div>
+        <div style={{
+          background: `${COLORS.gold}08`,
+          border: `1px solid ${COLORS.gold}30`,
+          borderRadius: 4,
+          padding: '10px 14px',
+          fontSize: 12,
+          color: COLORS.textDim,
+          letterSpacing: 0.5,
+        }}>
+          {CHAINS.find(c => c.id === activeChain)?.cascade}
+        </div>
+      </div>
+
+      {/* Swing Selector */}
+      <div style={{ ...cardStyle, borderLeft: `3px solid ${COLORS.gold}` }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: COLORS.gold, marginBottom: 10 }}>
+          SWING SELECTOR
+        </div>
+        <select
+          value={selectedSwingId}
+          onChange={e => setSelectedSwingId(e.target.value)}
+          style={selectStyle}
+        >
+          <option value="">-- Select a swing --</option>
+          {swings.map(s => (
+            <option key={s.id} value={s.id}>
+              {s.label || s.filename || `Swing ${s.id}`}
+            </option>
+          ))}
+        </select>
+        {loading && <span style={{ color: COLORS.textMuted, fontSize: 11, marginLeft: 12 }}>Loading...</span>}
+      </div>
+
+      {/* No topology state */}
+      {selectedSwingId && swingData && !topo && !loading && (
+        <div style={{ ...cardStyle, borderLeft: `3px solid #e0c040` }}>
+          <p style={{ color: '#e0c040', fontSize: 13, margin: 0 }}>
+            Topology not computed. Run &apos;Analyze&apos; from the Session Feed tab first.
+          </p>
+        </div>
+      )}
+
+      {/* Persistence Diagram */}
+      {topo?.persistence && (
+        <div style={{ ...cardStyle, borderLeft: `3px solid ${COLORS.purple}` }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: COLORS.purple, marginBottom: 10 }}>
+            PERSISTENCE DIAGRAM
+          </div>
+          <svg width={400} height={300} style={{ background: COLORS.bg, borderRadius: 4, border: `1px solid ${COLORS.border}` }}>
+            {/* Diagonal */}
+            <line x1={40} y1={260} x2={380} y2={20} stroke={COLORS.textMuted} strokeWidth={1} strokeDasharray="4,4" />
+            {/* Axes */}
+            <line x1={40} y1={260} x2={380} y2={260} stroke={COLORS.border} strokeWidth={1} />
+            <line x1={40} y1={260} x2={40} y2={20} stroke={COLORS.border} strokeWidth={1} />
+            <text x={210} y={290} textAnchor="middle" fill={COLORS.textMuted} fontSize={10}>Birth</text>
+            <text x={12} y={140} textAnchor="middle" fill={COLORS.textMuted} fontSize={10} transform="rotate(-90,12,140)">Death</text>
+            {/* Points */}
+            {(topo.persistence.pairs || []).map((p, i) => {
+              const maxVal = Math.max(
+                ...((topo.persistence.pairs || []).flatMap(pp => [pp.birth || 0, pp.death || 0])),
+                1
+              );
+              const x = 40 + ((p.birth || 0) / maxVal) * 340;
+              const y = 260 - ((p.death || 0) / maxVal) * 240;
+              const dim = p.dimension ?? 0;
+              return (
+                <circle
+                  key={i}
+                  cx={x}
+                  cy={y}
+                  r={4}
+                  fill={dimColors[dim] || COLORS.textMuted}
+                  opacity={0.8}
+                />
+              );
+            })}
+          </svg>
+          {/* Legend */}
+          <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 11 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: COLORS.blue, display: 'inline-block' }} /> H0
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: COLORS.purple, display: 'inline-block' }} /> H1
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: COLORS.gold, display: 'inline-block' }} /> H2
+            </span>
+          </div>
+          {/* Betti numbers and total persistence */}
+          <div style={{ display: 'flex', gap: 24, marginTop: 10, fontSize: 12, color: COLORS.textDim }}>
+            {topo.persistence.betti_0 != null && (
+              <span><span style={{ color: COLORS.blue, fontWeight: 700 }}>Betti-0:</span> {topo.persistence.betti_0}</span>
+            )}
+            {topo.persistence.betti_1 != null && (
+              <span><span style={{ color: COLORS.purple, fontWeight: 700 }}>Betti-1:</span> {topo.persistence.betti_1}</span>
+            )}
+            {topo.persistence.total_persistence != null && (
+              <span><span style={{ color: COLORS.gold, fontWeight: 700 }}>Total Persistence:</span> {topo.persistence.total_persistence.toFixed(4)}</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sheaf Coherence */}
+      {topo?.sheaf && (
+        <div style={{ ...cardStyle, borderLeft: `3px solid ${COLORS.green}` }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: COLORS.green, marginBottom: 10 }}>
+            SHEAF COHERENCE
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              flex: 1, height: 20, background: COLORS.bg, borderRadius: 4,
+              border: `1px solid ${COLORS.border}`, overflow: 'hidden',
+            }}>
+              <div style={{
+                width: `${(topo.sheaf.global_coherence || 0) * 100}%`,
+                height: '100%',
+                background: coherenceColor(topo.sheaf.global_coherence || 0),
+                borderRadius: 4,
+                transition: 'width 0.3s',
+              }} />
+            </div>
+            <span style={{
+              fontSize: 14, fontWeight: 700, minWidth: 50, textAlign: 'right',
+              color: coherenceColor(topo.sheaf.global_coherence || 0),
+            }}>
+              {((topo.sheaf.global_coherence || 0) * 100).toFixed(1)}%
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* CST Report */}
+      {topo?.cst_report && (
+        <div style={{ ...cardStyle, borderLeft: `3px solid ${topo.cst_report.n_discontinuities === 0 ? COLORS.green : COLORS.red}` }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: COLORS.gold, marginBottom: 10 }}>
+            CST REPORT
+          </div>
+          {topo.cst_report.n_discontinuities === 0 ? (
+            <span style={{ color: COLORS.green, fontSize: 13, fontWeight: 600 }}>No discontinuities detected</span>
+          ) : (
+            <span style={{ color: topo.cst_report.n_discontinuities > 2 ? COLORS.red : '#e0c040', fontSize: 13, fontWeight: 600 }}>
+              {topo.cst_report.n_discontinuities} discontinuit{topo.cst_report.n_discontinuities === 1 ? 'y' : 'ies'} detected
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Comparison */}
+      <div style={{ ...cardStyle, borderLeft: `3px solid ${COLORS.blue}` }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: COLORS.blue, marginBottom: 10 }}>
+          SWING COMPARISON
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select value={compareA} onChange={e => setCompareA(e.target.value)} style={selectStyle}>
+            <option value="">-- Swing A --</option>
+            {swings.map(s => (
+              <option key={s.id} value={s.id}>{s.label || s.filename || `Swing ${s.id}`}</option>
+            ))}
+          </select>
+          <span style={{ color: COLORS.textMuted, fontSize: 12 }}>vs</span>
+          <select value={compareB} onChange={e => setCompareB(e.target.value)} style={selectStyle}>
+            <option value="">-- Swing B --</option>
+            {swings.map(s => (
+              <option key={s.id} value={s.id}>{s.label || s.filename || `Swing ${s.id}`}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleCompare}
+            disabled={!compareA || !compareB || comparing}
+            style={{
+              padding: '6px 16px',
+              background: compareA && compareB ? COLORS.gold : COLORS.border,
+              color: compareA && compareB ? COLORS.bg : COLORS.textMuted,
+              border: 'none',
+              borderRadius: 4,
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 1,
+              cursor: compareA && compareB ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {comparing ? 'Comparing...' : 'Compare'}
+          </button>
+        </div>
+        {compareResult && (
+          <div style={{ marginTop: 12, fontSize: 12, color: COLORS.textDim }}>
+            {compareResult.error ? (
+              <span style={{ color: COLORS.red }}>{compareResult.error}</span>
+            ) : compareResult.delta_persistence != null ? (
+              <div>
+                <span style={{ color: COLORS.gold, fontWeight: 700 }}>Delta Persistence: </span>
+                <span style={{ color: COLORS.text, fontWeight: 700 }}>{compareResult.delta_persistence.toFixed(4)}</span>
+              </div>
+            ) : (
+              <span style={{ color: '#e0c040' }}>Both swings must be encoded first.</span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function SignalMonitorTab() {
