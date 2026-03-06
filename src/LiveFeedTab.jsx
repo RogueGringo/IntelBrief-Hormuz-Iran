@@ -192,7 +192,44 @@ export default function SessionFeedTab() {
   const mountedRef = useRef(true);
   const [dragOver, setDragOver] = useState(false);
   const [batchProgress, setBatchProgress] = useState(null); // { done, total }
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkLabel, setBulkLabel] = useState('');
   const { addToast } = useToast();
+
+  const toggleSelect = useCallback((id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (!selectedIds.size) return;
+    for (const id of selectedIds) {
+      await fetch(`/api/swing/${id}`, { method: 'DELETE' });
+    }
+    addToast(`Deleted ${selectedIds.size} session(s)`, 'success');
+    setSelectedIds(new Set());
+    const updated = await fetchSwings();
+    if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
+  }, [selectedIds, addToast]);
+
+  const handleBulkLabel = useCallback(async (label) => {
+    if (!selectedIds.size || !label) return;
+    for (const id of selectedIds) {
+      await fetch(`/api/swing/${id}/label`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label }),
+      });
+    }
+    addToast(`Labeled ${selectedIds.size} session(s) as "${label}"`, 'success');
+    setSelectedIds(new Set());
+    setBulkLabel('');
+    const updated = await fetchSwings();
+    if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
+  }, [selectedIds, addToast]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -679,6 +716,44 @@ export default function SessionFeedTab() {
         </div>
       )}
 
+      {/* Bulk Action Bar */}
+      {selectedIds.size > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px',
+          background: `${COLORS.gold}10`, border: `1px solid ${COLORS.gold}30`,
+          borderRadius: 8, marginBottom: 10,
+        }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.gold }}>
+            {selectedIds.size} selected
+          </span>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input
+              placeholder="Label..."
+              value={bulkLabel}
+              onChange={e => setBulkLabel(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleBulkLabel(bulkLabel); }}
+              style={{
+                background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                borderRadius: 4, color: COLORS.text, padding: '3px 8px',
+                fontSize: 10, width: 100, outline: 'none',
+              }}
+            />
+            <button onClick={() => handleBulkLabel(bulkLabel)} disabled={!bulkLabel}
+              style={{ padding: '3px 10px', fontSize: 9, fontWeight: 700, borderRadius: 3, border: `1px solid ${COLORS.gold}40`, background: bulkLabel ? `${COLORS.gold}20` : 'transparent', color: COLORS.gold, cursor: bulkLabel ? 'pointer' : 'not-allowed' }}>
+              LABEL
+            </button>
+          </div>
+          <button onClick={handleBulkDelete}
+            style={{ padding: '3px 10px', fontSize: 9, fontWeight: 700, borderRadius: 3, border: `1px solid ${COLORS.red}40`, background: 'transparent', color: COLORS.red, cursor: 'pointer', marginLeft: 'auto' }}>
+            DELETE
+          </button>
+          <button onClick={() => setSelectedIds(new Set())}
+            style={{ padding: '3px 8px', fontSize: 10, border: 'none', background: 'transparent', color: COLORS.textMuted, cursor: 'pointer' }}>
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Swing Cards */}
       {filtered.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -723,6 +798,13 @@ export default function SessionFeedTab() {
                 {/* Header row */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(id)}
+                      onClick={e => e.stopPropagation()}
+                      onChange={() => toggleSelect(id)}
+                      style={{ accentColor: COLORS.gold, cursor: 'pointer', width: 14, height: 14 }}
+                    />
                     <span style={{
                       fontFamily: 'monospace', fontSize: 12, fontWeight: 700,
                       color: COLORS.text,
