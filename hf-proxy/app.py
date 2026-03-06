@@ -1109,7 +1109,7 @@ async def coach(swing_id: str):
     if not record:
         return JSONResponse({"error": "Swing not found"}, status_code=404)
 
-    prompt = f"""Analyze this golf swing data and provide coaching notes.
+    prompt = f"""Analyze this motion capture session and provide coaching notes.
 
 Classification: {record.classification}
 Confidence: {record.classification_confidence}
@@ -1117,7 +1117,7 @@ Features: {json.dumps(record.features or {}, indent=2)}
 Topology: {json.dumps(record.topology or {}, indent=2)}
 Ground Truth: {json.dumps(record.ground_truth, indent=2)}
 
-Provide specific, actionable coaching advice:"""
+Provide specific, actionable coaching advice based on the motion data:"""
 
     try:
         import concurrent.futures

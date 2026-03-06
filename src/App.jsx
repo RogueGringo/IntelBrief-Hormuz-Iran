@@ -165,7 +165,7 @@ function ThesisTab() {
     margin: 0,
   };
 
-  const phases = ['Address', 'Backswing', 'Top', 'Downswing', 'Impact', 'Follow-Through', 'Finish'];
+  const phases = ['Idle', 'Onset', 'Load', 'Peak Load', 'Drive', 'Impact', 'Follow', 'Recovery'];
 
   return (
     <div style={{ padding: 20, color: COLORS.text }}>
@@ -186,7 +186,7 @@ function ThesisTab() {
         {[
           {
             title: 'SENSE',
-            text: 'Raw 6-axis IMU data (accelerometer + gyroscope) → 90 extracted features. Phase detection identifies address, backswing, top, downswing, impact, follow-through, finish. Kinematic chain reconstruction from a single wrist sensor.',
+            text: 'Raw 6-axis IMU data (accelerometer + gyroscope at 500Hz) → 91 extracted features. Phase detection identifies idle, onset, load, peak_load, drive, impact, follow, recovery. Full kinematic analysis from a single STEVAL-PROTEUS1 sensor node.',
           },
           {
             title: 'ENCODE',
@@ -227,9 +227,9 @@ function ThesisTab() {
       <div style={cardStyle}>
         <h3 style={headingStyle}>PHASE TRANSITIONS IN MOTION</h3>
         <p style={bodyStyle}>
-          Every golf swing passes through 7 topological states: Address → Backswing → Top → Downswing →
-          Impact → Follow-Through → Finish. Each transition is a critical point in the persistence
-          diagram — a birth or death of a topological feature. The downswing-to-impact transition is the
+          Every motion capture passes through 8 topological phases: Idle → Onset → Load → Peak Load →
+          Drive → Impact → Follow → Recovery. Each transition is a critical point in the persistence
+          diagram — a birth or death of a topological feature. The drive-to-impact transition is the
           highest-energy phase boundary, where the most persistent H1 loops collapse.
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, flexWrap: 'wrap' }}>
