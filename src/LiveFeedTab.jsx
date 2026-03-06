@@ -157,6 +157,7 @@ export default function SessionFeedTab() {
   const [actionLoading, setActionLoading] = useState({});
   const fileInputRef = useRef(null);
   const mountedRef = useRef(true);
+  const [dragOver, setDragOver] = useState(false);
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -332,21 +333,27 @@ export default function SessionFeedTab() {
       {/* Upload Area */}
       <div
         onClick={() => fileInputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
         onDrop={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          if (e.dataTransfer.files.length > 0) handleFiles(Array.from(e.dataTransfer.files));
+          setDragOver(false);
+          const files = Array.from(e.dataTransfer.files);
+          const csvFiles = files.filter(f => f.name.toLowerCase().endsWith('.csv'));
+          const rejected = files.length - csvFiles.length;
+          if (rejected > 0) addToast(`${rejected} non-CSV file${rejected > 1 ? 's' : ''} skipped`, 'warning');
+          if (csvFiles.length > 0) handleFiles(csvFiles);
         }}
         style={{
-          border: `2px dashed ${COLORS.border}`,
+          border: `2px dashed ${dragOver ? COLORS.gold : COLORS.border}`,
           borderRadius: 12,
           padding: '32px 20px',
           textAlign: 'center',
           cursor: 'pointer',
           marginBottom: 24,
-          background: `${COLORS.surface}80`,
-          transition: 'border-color 0.2s',
+          background: dragOver ? `${COLORS.gold}10` : `${COLORS.surface}80`,
+          transition: 'all 0.2s',
         }}
       >
         <div style={{ fontSize: 14, color: COLORS.textDim, marginBottom: 6 }}>
