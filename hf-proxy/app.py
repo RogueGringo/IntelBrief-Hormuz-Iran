@@ -1181,6 +1181,7 @@ async def get_trends():
             "phase_counts": _count_phases(phases.get("phases", [])),
             "embedding_norm": sum(x ** 2 for x in emb) ** 0.5 if emb else None,
             "tags": record.tags,
+            "user_label": record.user_label,
         })
     return {"sessions": points, "count": len(points)}
 

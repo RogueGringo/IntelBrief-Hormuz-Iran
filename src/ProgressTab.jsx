@@ -88,7 +88,7 @@ export default function ProgressTab() {
   const classDistribution = useMemo(() => {
     const counts = {};
     sessions.forEach(s => {
-      const c = s.classification || "unclassified";
+      const c = s.user_label || s.classification || "unclassified";
       counts[c] = (counts[c] || 0) + 1;
     });
     return Object.entries(counts).map(([name, count]) => ({ name, count, pct: (count / sessions.length * 100).toFixed(0) }));
