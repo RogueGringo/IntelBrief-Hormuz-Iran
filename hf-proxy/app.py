@@ -971,6 +971,28 @@ async def remove_label(swing_id: str):
 async def classifier_status():
     counts = motion_classifier.get_label_counts()
     mlp = getattr(motion_classifier, 'mlp', None) or getattr(motion_classifier, '_mlp', None)
+
+    # Per-class prediction accuracy (label vs classifier prediction)
+    per_class = {}
+    all_swings = store.list_all()
+    correct = 0
+    total_eval = 0
+    for summary in all_swings:
+        label = summary.get("user_label")
+        pred = summary.get("classification")
+        if label and pred:
+            total_eval += 1
+            if label not in per_class:
+                per_class[label] = {"correct": 0, "total": 0, "predictions": {}}
+            per_class[label]["total"] += 1
+            per_class[label]["predictions"][pred] = per_class[label]["predictions"].get(pred, 0) + 1
+            if label.lower() == pred.lower():
+                per_class[label]["correct"] += 1
+                correct += 1
+
+    for cls_data in per_class.values():
+        cls_data["accuracy"] = round(cls_data["correct"] / max(cls_data["total"], 1), 3)
+
     return {
         "total_labeled": sum(counts.values()),
         "classes": counts,
@@ -980,6 +1002,9 @@ async def classifier_status():
         "mlp_trained_at": mlp.get("trained_at") if mlp else None,
         "can_train": motion_classifier.can_train_mlp(),
         "method": "mlp" if (mlp and "weights" in (mlp or {})) else "knn",
+        "per_class": per_class,
+        "eval_accuracy": round(correct / max(total_eval, 1), 3) if total_eval > 0 else None,
+        "eval_total": total_eval,
     }
 
 

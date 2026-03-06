@@ -1194,6 +1194,7 @@ function ModelRegistryTab() {
             <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>LABEL DISTRIBUTION</div>
             {Object.entries(classifierStatus.classes).sort((a, b) => b[1] - a[1]).map(([label, count]) => {
               const maxCount = Math.max(...Object.values(classifierStatus.classes));
+              const perClass = classifierStatus.per_class?.[label];
               return (
                 <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                   <span style={{ fontSize: 10, color: COLORS.text, width: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
@@ -1201,13 +1202,84 @@ function ModelRegistryTab() {
                     <div style={{ width: `${(count / maxCount) * 100}%`, height: '100%', background: COLORS.gold, borderRadius: 2 }} />
                   </div>
                   <span style={{ fontSize: 10, color: COLORS.textDim, width: 30, textAlign: 'right' }}>{count}</span>
+                  {perClass && (
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, width: 40, textAlign: 'right',
+                      color: perClass.accuracy > 0.8 ? COLORS.green : perClass.accuracy > 0.5 ? '#e0c040' : COLORS.red,
+                    }}>
+                      {(perClass.accuracy * 100).toFixed(0)}%
+                    </span>
+                  )}
                 </div>
               );
             })}
+            {/* Eval accuracy summary */}
+            {classifierStatus.eval_total > 0 && (
+              <div style={{
+                marginTop: 10, padding: '8px 12px', borderRadius: 4,
+                background: `${classifierStatus.eval_accuracy > 0.8 ? COLORS.green : classifierStatus.eval_accuracy > 0.5 ? '#e0c040' : COLORS.red}08`,
+                border: `1px solid ${classifierStatus.eval_accuracy > 0.8 ? COLORS.green : classifierStatus.eval_accuracy > 0.5 ? '#e0c040' : COLORS.red}20`,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}>
+                <span style={{ fontSize: 10, color: COLORS.textDim }}>
+                  Label vs Prediction ({classifierStatus.eval_total} evaluated)
+                </span>
+                <span style={{
+                  fontSize: 13, fontWeight: 700,
+                  color: classifierStatus.eval_accuracy > 0.8 ? COLORS.green : classifierStatus.eval_accuracy > 0.5 ? '#e0c040' : COLORS.red,
+                }}>
+                  {(classifierStatus.eval_accuracy * 100).toFixed(1)}% match
+                </span>
+              </div>
+            )}
+            {/* Per-class confusion mini-matrix */}
+            {classifierStatus.per_class && Object.keys(classifierStatus.per_class).length > 1 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                  PREDICTION MATRIX
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ borderCollapse: 'collapse', fontSize: 10, width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ padding: '4px 6px', textAlign: 'left', color: COLORS.textDim, fontWeight: 600 }}>Label &#8595;</th>
+                        {Object.keys(classifierStatus.per_class).map(cls => (
+                          <th key={cls} style={{ padding: '4px 6px', textAlign: 'center', color: COLORS.textDim, fontWeight: 600, fontSize: 9 }}>
+                            {cls}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(classifierStatus.per_class).map(([label, data]) => (
+                        <tr key={label}>
+                          <td style={{ padding: '3px 6px', color: COLORS.text, fontWeight: 600 }}>{label}</td>
+                          {Object.keys(classifierStatus.per_class).map(predCls => {
+                            const count = data.predictions[predCls] || 0;
+                            const isDiag = label === predCls;
+                            return (
+                              <td key={predCls} style={{
+                                padding: '3px 6px', textAlign: 'center',
+                                background: count > 0 ? (isDiag ? `${COLORS.green}20` : `${COLORS.red}15`) : 'transparent',
+                                color: count > 0 ? (isDiag ? COLORS.green : COLORS.red) : COLORS.textMuted,
+                                fontWeight: count > 0 ? 700 : 400,
+                                borderRadius: 2,
+                              }}>
+                                {count || '\u00B7'}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ fontSize: 11, color: COLORS.textDim, textAlign: 'center', padding: 12 }}>
-            No labeled sessions yet. Add labels in SESSION FEED to train the classifier.
+            No labeled sessions yet. Add labels in SESSION FEED or right-click points in TOPOLOGY CHAINS.
           </div>
         )}
       </div>
@@ -1220,13 +1292,19 @@ function EmbeddingScatter({ onSelectSwing, highlightId }) {
   const [loading, setLoading] = useState(true);
   const [hoveredPt, setHoveredPt] = useState(null);
   const [colorBy, setColorBy] = useState('classification'); // 'classification', 'label', 'quality'
+  const [labelPopup, setLabelPopup] = useState(null); // { idx, x, y }
+  const [labelInput, setLabelInput] = useState('');
+  const [labeling, setLabeling] = useState(false);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
+    setLoading(true);
     fetchEmbeddingMap().then(data => {
       setMapData(data);
       setLoading(false);
     });
   }, []);
+
+  useEffect(() => { reload(); }, [reload]);
 
   if (loading) return <div style={{ color: COLORS.textDim, fontSize: 11, padding: 12 }}>Loading embedding map...</div>;
   if (!mapData || mapData.count < 2) {
@@ -1320,6 +1398,11 @@ function EmbeddingScatter({ onSelectSwing, highlightId }) {
               onMouseEnter={() => setHoveredPt(i)}
               onMouseLeave={() => setHoveredPt(null)}
               onClick={() => onSelectSwing && onSelectSwing(pt.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setLabelPopup({ idx: i, x: e.clientX, y: e.clientY });
+                setLabelInput(pt.user_label || '');
+              }}
             />
           );
         })}
@@ -1348,6 +1431,96 @@ function EmbeddingScatter({ onSelectSwing, highlightId }) {
           );
         })()}
       </svg>
+      {/* Quick-label popup (right-click a point) */}
+      {labelPopup && (() => {
+        const pt = points[labelPopup.idx];
+        const existingLabels = [...new Set(points.map(p => p.user_label).filter(Boolean))];
+        const applyLabel = async (label) => {
+          setLabeling(true);
+          try {
+            await fetch(`/api/swing/${pt.id}/label`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ label }),
+            });
+            setLabelPopup(null);
+            reload();
+          } catch (e) { console.error('Label failed:', e); }
+          setLabeling(false);
+        };
+        return (
+          <div
+            onClick={() => setLabelPopup(null)}
+            style={{ position: 'fixed', inset: 0, zIndex: 8000 }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                position: 'fixed', left: labelPopup.x, top: labelPopup.y,
+                background: COLORS.surface, border: `1px solid ${COLORS.gold}40`,
+                borderRadius: 6, padding: 10, minWidth: 180,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.4)', zIndex: 8001,
+              }}
+            >
+              <div style={{ fontSize: 10, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                QUICK LABEL
+              </div>
+              <div style={{ fontSize: 11, color: COLORS.text, marginBottom: 8 }}>
+                {(pt.filename || pt.id).slice(0, 25)}
+                {pt.user_label && <span style={{ color: COLORS.gold, marginLeft: 6 }}>[{pt.user_label}]</span>}
+              </div>
+              {existingLabels.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                  {existingLabels.map(label => (
+                    <button
+                      key={label}
+                      disabled={labeling}
+                      onClick={() => applyLabel(label)}
+                      style={{
+                        padding: '3px 8px', fontSize: 9, fontWeight: 700, borderRadius: 3,
+                        cursor: 'pointer', letterSpacing: 0.5,
+                        background: pt.user_label === label ? `${COLORS.gold}30` : `${COLORS.gold}10`,
+                        border: `1px solid ${pt.user_label === label ? COLORS.gold : COLORS.border}`,
+                        color: pt.user_label === label ? COLORS.gold : COLORS.textDim,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 4 }}>
+                <input
+                  type="text"
+                  value={labelInput}
+                  onChange={e => setLabelInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && labelInput.trim()) applyLabel(labelInput.trim()); }}
+                  placeholder="New label..."
+                  autoFocus
+                  style={{
+                    flex: 1, padding: '4px 8px', fontSize: 11, fontFamily: 'monospace',
+                    background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                    borderRadius: 3, color: COLORS.text,
+                  }}
+                />
+                <button
+                  disabled={labeling || !labelInput.trim()}
+                  onClick={() => labelInput.trim() && applyLabel(labelInput.trim())}
+                  style={{
+                    padding: '4px 10px', fontSize: 9, fontWeight: 700, borderRadius: 3,
+                    cursor: labelInput.trim() ? 'pointer' : 'not-allowed',
+                    background: labelInput.trim() ? COLORS.gold : COLORS.border,
+                    color: labelInput.trim() ? COLORS.bg : COLORS.textMuted,
+                    border: 'none',
+                  }}
+                >
+                  {labeling ? '...' : 'SET'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
