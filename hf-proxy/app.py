@@ -1227,6 +1227,85 @@ async def llm_status():
 
 
 # ─── COACHING ────────────────────────────────────────────────
+def _rule_based_coaching(record: SwingRecord) -> str:
+    """Generate coaching advice from features and topology without LLM."""
+    notes = []
+    feat = record.features or {}
+    topo = record.topology or {}
+    pers = topo.get("persistence", {})
+    phases = topo.get("phases", {})
+
+    # Data quality
+    quality = feat.get("data_quality_score", feat.get("quality_score"))
+    if quality is not None:
+        if quality < 0.3:
+            notes.append("Data quality is low — check sensor placement and ensure firm mounting.")
+        elif quality < 0.6:
+            notes.append("Data quality is moderate. Consider reducing movement artifacts.")
+
+    # Duration check
+    dur = feat.get("duration_s")
+    if dur is not None:
+        if dur < 0.5:
+            notes.append(f"Session very short ({dur:.1f}s). Ensure full motion cycle is captured.")
+        elif dur > 30:
+            notes.append(f"Session is {dur:.1f}s — consider trimming to active motion window.")
+
+    # Peak acceleration
+    peak = feat.get("peak_accel_magnitude", feat.get("accel_mag_max"))
+    if peak is not None:
+        if peak > 50000:
+            notes.append(f"Very high peak acceleration ({peak:.0f} mg). Verify sensor range isn't saturated.")
+        elif peak < 500:
+            notes.append("Low peak acceleration — motion may be too gentle for meaningful analysis.")
+
+    # Smoothness
+    smooth = feat.get("smoothness")
+    if smooth is not None:
+        if smooth < 0.3:
+            notes.append("Motion is jerky (low smoothness). Focus on fluid, controlled movement.")
+        elif smooth > 0.8:
+            notes.append("Excellent motion smoothness — consistent kinematic chain.")
+
+    # Phase analysis
+    n_phases = len(phases.get("phases", []))
+    if n_phases < 4:
+        notes.append(f"Only {n_phases} phases detected. A complete motion should have 5-8 distinct phases.")
+    elif n_phases >= 7:
+        notes.append(f"Full {n_phases}-phase motion detected — well-structured movement pattern.")
+
+    # Topology
+    b0 = pers.get("betti_0", topo.get("betti_0"))
+    b1 = pers.get("betti_1", topo.get("betti_1"))
+    total_p = topo.get("total_persistence")
+
+    if b0 is not None and b1 is not None:
+        if b1 == 0:
+            notes.append("No H1 loops in topology — motion path is tree-like. Consider adding rotational elements.")
+        elif b1 > 5:
+            notes.append(f"Rich topological structure (Betti-1={b1}). Complex motion with multiple loop patterns.")
+
+    if total_p is not None:
+        if total_p < 0.5:
+            notes.append("Low total persistence — topological features are weak. Motion may lack distinctive structure.")
+        elif total_p > 5:
+            notes.append("High total persistence — strong, distinct topological signature.")
+
+    # Classification
+    if record.classification:
+        cls = record.classification.upper()
+        conf = record.classification_confidence or 0
+        if conf > 0.8:
+            notes.append(f"Classified as {cls} with high confidence ({conf*100:.0f}%).")
+        elif conf < 0.5:
+            notes.append(f"Classification uncertain ({cls} at {conf*100:.0f}%). Motion pattern is ambiguous.")
+
+    if not notes:
+        notes.append("Session captured and analyzed. Upload more sessions to enable trend comparison.")
+
+    return " ".join(notes)
+
+
 @app.post("/api/coach/{swing_id}")
 async def coach(swing_id: str):
     record = store.load(swing_id)
@@ -1243,15 +1322,18 @@ Ground Truth: {json.dumps(record.ground_truth, indent=2)}
 
 Provide specific, actionable coaching advice based on the motion data:"""
 
+    notes = None
     try:
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(llm.infer_gpu, prompt, 512)
             notes = future.result(timeout=30)
-    except concurrent.futures.TimeoutError:
-        notes = "(LLM inference timed out after 30s)"
-    except RuntimeError:
-        notes = "(No LLM model loaded — load a GPU model first)"
+    except (concurrent.futures.TimeoutError, RuntimeError):
+        pass
+
+    # Rule-based coaching fallback when LLM unavailable
+    if not notes or notes.startswith("("):
+        notes = _rule_based_coaching(record)
 
     store.update(swing_id, coaching_notes=notes, status="coached")
     return {"id": swing_id, "coaching_notes": notes, "status": "coached"}
