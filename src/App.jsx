@@ -1609,11 +1609,74 @@ function SignalMonitorTab() {
   );
 }
 
+// ─── STATUS BAR ────────────────────────────────────────────
+function StatusBar() {
+  const [health, setHealth] = useState(null);
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const resp = await fetch('/api/health');
+        const data = await resp.json();
+        setHealth(data);
+      } catch { setHealth(null); }
+    };
+    check();
+    const interval = setInterval(check, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0,
+      height: 24, background: '#08090d', borderTop: `1px solid ${COLORS.border}`,
+      display: 'flex', alignItems: 'center', padding: '0 16px', gap: 16,
+      fontSize: 9, color: COLORS.textMuted, zIndex: 100,
+    }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%',
+          background: health ? COLORS.green : COLORS.red,
+        }} />
+        {health ? 'Backend OK' : 'Offline'}
+      </span>
+      {health?.sovereign_lib && (
+        <span style={{ color: COLORS.green }}>sovereign-lib</span>
+      )}
+      {health?.swings != null && (
+        <span>{health.swings} sessions</span>
+      )}
+      <span style={{ marginLeft: 'auto', letterSpacing: 1 }}>
+        SOVEREIGN MOTION v1.0
+      </span>
+      <span style={{ color: COLORS.textMuted }}>
+        [1-7] switch tabs
+      </span>
+    </div>
+  );
+}
+
 // ─── MAIN APP ──────────────────────────────────────────────
 export default function App() {
   const [activeTab, setActiveTab] = useState('thesis');
+
+  // Keyboard shortcuts: 1-7 to switch tabs
+  useEffect(() => {
+    const handler = (e) => {
+      // Don't capture if user is typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      const tabMap = { '1': 'thesis', '2': 'sensors', '3': 'motionPatterns', '4': 'modelRegistry', '5': 'topoChains', '6': 'monitor', '7': 'feed' };
+      if (tabMap[e.key]) {
+        e.preventDefault();
+        setActiveTab(tabMap[e.key]);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   return (
-    <div style={{ minHeight: '100vh', background: COLORS.bg, color: COLORS.text }}>
+    <div style={{ minHeight: '100vh', background: COLORS.bg, color: COLORS.text, paddingBottom: 24 }}>
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px 40px' }}>
         {activeTab === 'thesis' && <ThesisTab />}
@@ -1624,6 +1687,7 @@ export default function App() {
         {activeTab === 'monitor' && <SignalMonitorTab />}
         {activeTab === 'feed' && <SessionFeedTab />}
       </div>
+      <StatusBar />
     </div>
   );
 }

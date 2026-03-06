@@ -182,6 +182,7 @@ async def health():
         "sovereign_lib": sovereign_lib_available,
         "llm_gpu": llm.gpu_slot is not None,
         "llm_cpu": llm.cpu_slot is not None,
+        "swings": len(store.list_all()),
     }
 
 
