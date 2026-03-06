@@ -18,7 +18,7 @@
 	ism330dhcx@6a {
 		compatible = "st,ism330dhcx";
 		reg = <0x6a>;
-		int1-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
+		drdy-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
 	};
 };
 
