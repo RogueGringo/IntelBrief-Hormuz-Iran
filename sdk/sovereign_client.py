@@ -30,9 +30,11 @@ import requests
 class SovereignClient:
     """Client for the Sovereign Motion API."""
 
-    def __init__(self, base_url: str = "http://localhost:8000") -> None:
+    def __init__(self, base_url: str = "http://localhost:8000", api_key: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self._session = requests.Session()
+        if api_key:
+            self._session.headers["X-API-Key"] = api_key
 
     def _url(self, path: str) -> str:
         return f"{self.base_url}{path}"
@@ -118,6 +120,13 @@ class SovereignClient:
     def get_data(self, session_id: str, downsample: int = 1) -> dict:
         """Get raw time-series data for charting."""
         return self._get(f"/api/swing/{session_id}/data?downsample={downsample}")
+
+    def download(self, session_id: str, output_path: str) -> str:
+        """Download the original CSV file for a session."""
+        resp = self._session.get(self._url(f"/api/swing/{session_id}/download"))
+        resp.raise_for_status()
+        Path(output_path).write_bytes(resp.content)
+        return output_path
 
     # ─── Trends & Export ──────────────────────────────────
 
