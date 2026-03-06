@@ -139,14 +139,14 @@ export default function MotionPatternsTab() {
                 const allPairs = [];
                 topoSwings.forEach(s => {
                   (s.topology.persistence.pairs || []).forEach(p => {
-                    allPairs.push(p);
+                    if (p.death != null) allPairs.push(p); // Skip infinite-death pairs
                   });
                 });
                 if (allPairs.length === 0) return null;
 
-                const births = allPairs.map(p => p.birth != null ? p.birth : p[0]);
-                const deaths = allPairs.map(p => p.death != null ? p.death : p[1]);
-                const allVals = [...births, ...deaths];
+                const births = allPairs.map(p => p.birth ?? 0);
+                const deaths = allPairs.map(p => p.death ?? 0);
+                const allVals = [...births, ...deaths].filter(v => isFinite(v));
                 const minVal = Math.min(...allVals);
                 const maxVal = Math.max(...allVals);
                 const range = maxVal - minVal || 1;
@@ -156,25 +156,38 @@ export default function MotionPatternsTab() {
 
                 return topoSwings.map((s, si) => {
                   const color = PALETTE[si % PALETTE.length];
-                  return (s.topology.persistence.pairs || []).map((p, pi) => {
-                    const birth = p.birth != null ? p.birth : p[0];
-                    const death = p.death != null ? p.death : p[1];
+                  return (s.topology.persistence.pairs || []).filter(p => p.death != null).map((p, pi) => {
+                    const birth = p.birth ?? 0;
+                    const death = p.death ?? 0;
+                    const dim = p.dimension ?? 0;
                     return (
                       <circle
                         key={`${si}-${pi}`}
                         cx={scaleX(birth)}
                         cy={scaleY(death)}
                         r={4}
-                        fill={color}
-                        opacity={0.75}
+                        fill={dim === 0 ? COLORS.blue : dim === 1 ? COLORS.purple : COLORS.gold}
+                        opacity={0.6}
+                        r={3}
                       >
-                        <title>Swing {s.id}: birth={birth.toFixed(3)}, death={death.toFixed(3)}</title>
+                        <title>Swing {s.id} H{dim}: birth={birth.toFixed(3)}, death={death.toFixed(3)}</title>
                       </circle>
                     );
                   });
                 });
               })()}
             </svg>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 20, marginTop: 8, fontSize: 11, color: COLORS.textDim }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: COLORS.blue, display: 'inline-block' }} /> H0 (components)
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: COLORS.purple, display: 'inline-block' }} /> H1 (loops)
+              </span>
+              <span style={{ fontSize: 10, color: COLORS.textMuted }}>
+                {topoSwings.length} swing{topoSwings.length !== 1 ? 's' : ''} plotted
+              </span>
+            </div>
           </div>
         )}
       </div>
