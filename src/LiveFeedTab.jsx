@@ -191,6 +191,7 @@ export default function SessionFeedTab() {
   const fileInputRef = useRef(null);
   const mountedRef = useRef(true);
   const [dragOver, setDragOver] = useState(false);
+  const [batchProgress, setBatchProgress] = useState(null); // { done, total }
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -239,6 +240,30 @@ export default function SessionFeedTab() {
     const updated = await fetchSwings();
     if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
   }, [addToast]);
+
+  const handleBatchAnalyze = useCallback(async () => {
+    const unprocessed = swings.filter(s => s.status === 'ingested');
+    if (!unprocessed.length) {
+      addToast('All sessions already analyzed', 'info');
+      return;
+    }
+    const total = unprocessed.length;
+    setBatchProgress({ done: 0, total });
+    let success = 0;
+    for (let i = 0; i < unprocessed.length; i++) {
+      try {
+        await analyzeSwing(unprocessed[i].id);
+        success++;
+      } catch (e) {
+        console.error(`Batch analyze failed for ${unprocessed[i].id}:`, e);
+      }
+      if (mountedRef.current) setBatchProgress({ done: i + 1, total });
+    }
+    setBatchProgress(null);
+    addToast(`Batch complete: ${success}/${total} analyzed`, success === total ? 'success' : 'warning');
+    const updated = await fetchSwings();
+    if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
+  }, [swings, addToast]);
 
   const handleAnalyze = useCallback(async (id) => {
     setActionLoading(prev => ({ ...prev, [id]: 'analyzing' }));
@@ -427,7 +452,21 @@ export default function SessionFeedTab() {
           background: `${COLORS.blue}08`, border: `1px solid ${COLORS.blue}20`, borderRadius: 8,
           alignItems: 'center',
         }}>
-          <span style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 1, marginRight: 4 }}>EXPORT</span>
+          <span style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 1, marginRight: 4 }}>ACTIONS</span>
+          {swings.some(s => s.status === 'ingested') && (
+            <button
+              onClick={handleBatchAnalyze}
+              disabled={!!batchProgress}
+              style={{
+                padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+                cursor: batchProgress ? 'default' : 'pointer', background: `${COLORS.gold}15`,
+                border: `1px solid ${COLORS.gold}40`, color: COLORS.gold,
+                opacity: batchProgress ? 0.6 : 1,
+              }}
+            >
+              {batchProgress ? `Processing ${batchProgress.done}/${batchProgress.total}...` : `Analyze All (${swings.filter(s => s.status === 'ingested').length})`}
+            </button>
+          )}
           <button
             onClick={() => { window.open('/api/export/csv', '_blank'); }}
             style={{
@@ -436,10 +475,15 @@ export default function SessionFeedTab() {
               border: `1px solid ${COLORS.blue}40`, color: COLORS.blue,
             }}
           >
-            All Sessions CSV
+            Export CSV
           </button>
+          {batchProgress && (
+            <div style={{ width: 120, height: 4, background: COLORS.border, borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ width: `${(batchProgress.done / batchProgress.total) * 100}%`, height: '100%', background: COLORS.gold, borderRadius: 2, transition: 'width 0.3s' }} />
+            </div>
+          )}
           <span style={{ fontSize: 9, color: COLORS.textMuted, marginLeft: 'auto' }}>
-            {swings.length} session{swings.length !== 1 ? 's' : ''} + {Object.keys(swings[0]?.features || {}).length || '91'} features
+            {swings.length} session{swings.length !== 1 ? 's' : ''}
           </span>
         </div>
       )}
