@@ -18,6 +18,6 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git remote add hf https://huggingface.co/spaces/rOGUEgRINGO/Hormuz_intel || true
-          git remote set-url hf https://rOGUEgRINGO:${HF_TOKEN}@huggingface.co/spaces/rOGUEgRINGO/Hormuz_intel
+          git remote add hf https://huggingface.co/spaces/rOGUEgRINGO/sovereign-motion || true
+          git remote set-url hf https://rOGUEgRINGO:${HF_TOKEN}@huggingface.co/spaces/rOGUEgRINGO/sovereign-motion
           git push hf main --force
