@@ -140,3 +140,49 @@ class TestSettings:
         )
         assert resp.status_code == 200
         assert resp.json()["settings"]["sensor"]["threshold_mg"] == 200
+
+
+class TestClassifier:
+    def test_status_empty(self, client):
+        resp = client.get("/api/classifier/status")
+        assert resp.status_code == 200
+        assert resp.json()["total_labeled"] == 0
+
+    def test_label_session(self, client, sample_csv):
+        # Upload a session
+        with open(sample_csv, "rb") as f:
+            create = client.post(
+                "/api/ingest",
+                files={"file": ("label_test.csv", f, "text/csv")},
+                data={"auto_analyze": "false"},
+            )
+        sid = create.json()["id"]
+
+        # Label it
+        resp = client.put(
+            f"/api/swing/{sid}/label",
+            json={"label": "test_motion"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["user_label"] == "test_motion"
+
+        # Check status
+        status = client.get("/api/classifier/status")
+        assert status.json()["total_labeled"] == 1
+        assert "test_motion" in status.json()["classes"]
+
+    def test_remove_label(self, client, sample_csv):
+        with open(sample_csv, "rb") as f:
+            create = client.post(
+                "/api/ingest",
+                files={"file": ("rm_test.csv", f, "text/csv")},
+                data={"auto_analyze": "false"},
+            )
+        sid = create.json()["id"]
+        client.put(f"/api/swing/{sid}/label", json={"label": "temp"})
+        resp = client.delete(f"/api/swing/{sid}/label")
+        assert resp.status_code == 200
+
+    def test_train_requires_minimum_data(self, client):
+        resp = client.post("/api/classifier/train")
+        assert resp.status_code == 400
