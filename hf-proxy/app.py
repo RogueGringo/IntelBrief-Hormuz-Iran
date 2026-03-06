@@ -962,10 +962,20 @@ async def compare(a: str = Query(...), b: str = Query(...)):
             val_b = rec_b.features.get(key, 0)
             diff[key] = {"a": val_a, "b": val_b, "delta": round(val_b - val_a, 4)}
 
+    # Topological signature comparison
+    topo_comparison = None
+    if rec_a.topology and rec_b.topology and sovereign_lib_available:
+        try:
+            from sovereign_topo.encode import compare_signatures
+            topo_comparison = compare_signatures(rec_a.topology, rec_b.topology)
+        except Exception as e:
+            topo_comparison = {"error": str(e)}
+
     return {
         "a": rec_a.to_dict(),
         "b": rec_b.to_dict(),
         "feature_diff": diff,
+        "topo_comparison": topo_comparison,
     }
 
 

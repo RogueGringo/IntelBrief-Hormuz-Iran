@@ -46,7 +46,7 @@ export async function fetchSwings() {
 }
 
 export async function fetchSwing(id) {
-  const cached = getCached(`swing-${id}`, 0);
+  const cached = getCached(`swing-${id}`, 10000);
   if (cached) return cached;
   try {
     const resp = await fetch(`${API_BASE}/api/swing/${id}`);
