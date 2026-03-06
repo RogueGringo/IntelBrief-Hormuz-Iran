@@ -1,6 +1,106 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchSwings, ingestSwing, analyzeSwing, coachSwing, getHealth } from './DataService.jsx';
 import { COLORS, CLASS_COLORS } from './theme.js';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+
+function IMUChart({ swingId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState('accel'); // 'accel', 'gyro', 'impact'
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const resp = await fetch(`/api/swing/${swingId}/data?downsample=2`);
+        const json = await resp.json();
+        if (active) setData(json);
+      } catch (e) {
+        console.error('Failed to load swing data:', e);
+      }
+      if (active) setLoading(false);
+    };
+    load();
+    return () => { active = false; };
+  }, [swingId]);
+
+  if (loading) return <div style={{ color: COLORS.textDim, fontSize: 11, padding: 12 }}>Loading waveform...</div>;
+  if (!data || !data.imu || data.imu.length === 0) return <div style={{ color: COLORS.textMuted, fontSize: 11, padding: 12 }}>No IMU data available</div>;
+
+  const imu = data.imu.map((s, i) => ({ ...s, idx: i }));
+  const impact = (data.impact || []).map((s, i) => ({ ...s, idx: i }));
+
+  const tabStyle = (active) => ({
+    padding: '4px 12px', borderRadius: 4, fontSize: 9, fontWeight: 700,
+    letterSpacing: 1, cursor: 'pointer', border: '1px solid',
+    background: active ? `${COLORS.gold}20` : 'transparent',
+    borderColor: active ? COLORS.gold : COLORS.border,
+    color: active ? COLORS.gold : COLORS.textMuted,
+  });
+
+  const tooltipStyle = {
+    contentStyle: { background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 11 },
+    labelStyle: { color: COLORS.textMuted },
+  };
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <button onClick={() => setView('accel')} style={tabStyle(view === 'accel')}>ACCEL</button>
+        <button onClick={() => setView('gyro')} style={tabStyle(view === 'gyro')}>GYRO</button>
+        {impact.length > 0 && <button onClick={() => setView('impact')} style={tabStyle(view === 'impact')}>IMPACT ({impact.length})</button>}
+        <span style={{ fontSize: 10, color: COLORS.textMuted, marginLeft: 'auto', alignSelf: 'center' }}>
+          {data.imu_count} samples{data.impact_count > 0 ? ` + ${data.impact_count} impact` : ''}
+        </span>
+      </div>
+
+      <div style={{ background: COLORS.bg, borderRadius: 6, padding: '8px 4px', border: `1px solid ${COLORS.border}` }}>
+        {view === 'accel' && (
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={imu} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
+              <XAxis dataKey="idx" tick={{ fontSize: 9, fill: COLORS.textMuted }} />
+              <YAxis tick={{ fontSize: 9, fill: COLORS.textMuted }} />
+              <Tooltip {...tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Line type="monotone" dataKey="accel_x_mg" stroke={COLORS.red} dot={false} strokeWidth={1} name="X" />
+              <Line type="monotone" dataKey="accel_y_mg" stroke={COLORS.green} dot={false} strokeWidth={1} name="Y" />
+              <Line type="monotone" dataKey="accel_z_mg" stroke={COLORS.blue} dot={false} strokeWidth={1} name="Z" />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+        {view === 'gyro' && (
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={imu} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
+              <XAxis dataKey="idx" tick={{ fontSize: 9, fill: COLORS.textMuted }} />
+              <YAxis tick={{ fontSize: 9, fill: COLORS.textMuted }} />
+              <Tooltip {...tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Line type="monotone" dataKey="gyro_x_mdps" stroke="#ff6b6b" dot={false} strokeWidth={1} name="Gx" />
+              <Line type="monotone" dataKey="gyro_y_mdps" stroke="#51cf66" dot={false} strokeWidth={1} name="Gy" />
+              <Line type="monotone" dataKey="gyro_z_mdps" stroke="#339af0" dot={false} strokeWidth={1} name="Gz" />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+        {view === 'impact' && impact.length > 0 && (
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={impact} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
+              <XAxis dataKey="impact_idx" tick={{ fontSize: 9, fill: COLORS.textMuted }} />
+              <YAxis tick={{ fontSize: 9, fill: COLORS.textMuted }} />
+              <Tooltip {...tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Line type="monotone" dataKey="impact_x_mg" stroke={COLORS.red} dot={false} strokeWidth={1} name="X" />
+              <Line type="monotone" dataKey="impact_y_mg" stroke={COLORS.green} dot={false} strokeWidth={1} name="Y" />
+              <Line type="monotone" dataKey="impact_z_mg" stroke={COLORS.blue} dot={false} strokeWidth={1} name="Z" />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const REFRESH_INTERVAL = 30000; // 30 seconds
 
@@ -470,6 +570,9 @@ export default function SessionFeedTab() {
                         </div>
                       </div>
                     )}
+
+                    {/* IMU Waveform Chart */}
+                    <IMUChart swingId={id} />
                   </div>
                 )}
               </div>

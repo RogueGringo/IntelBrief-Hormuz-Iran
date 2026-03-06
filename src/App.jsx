@@ -222,6 +222,75 @@ function worstSeverity(signals) {
   return worst;
 }
 
+function HardwareSensorPanel() {
+  const [sensor, setSensor] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const resp = await fetch('/api/sensor/status');
+        const data = await resp.json();
+        if (active) { setSensor(data); setError(null); }
+      } catch (e) {
+        if (active) setError(e.message);
+      }
+    };
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => { active = false; clearInterval(interval); };
+  }, []);
+
+  if (error) return (
+    <div style={{ padding: 16, background: COLORS.surface, borderRadius: 8, border: `1px solid ${COLORS.border}`, marginBottom: 20 }}>
+      <span style={{ color: COLORS.red, fontSize: 12 }}>Sensor API error: {error}</span>
+    </div>
+  );
+  if (!sensor) return null;
+
+  const connected = sensor.connected;
+  const items = connected ? [
+    { label: 'STATE', value: sensor.state || '—', color: sensor.state === 'ARMED' ? COLORS.green : sensor.state === 'CAPTURE' ? COLORS.blue : COLORS.textMuted },
+    { label: 'TEMPERATURE', value: sensor.temp ? `${sensor.temp}°C` : '—', color: COLORS.text },
+    { label: 'RING BUFFER', value: sensor.ring || '—', color: COLORS.text },
+    { label: 'THRESHOLD', value: sensor.threshold ? `${sensor.threshold} mg` : '—', color: COLORS.gold },
+    { label: 'DURATION', value: sensor.duration ? `${sensor.duration}s` : '—', color: COLORS.text },
+    { label: 'IMPACT', value: sensor.impact || '—', color: sensor.impact === 'ready' ? COLORS.green : COLORS.textMuted },
+    { label: 'USB', value: sensor.usb || '—', color: sensor.usb === 'yes' ? COLORS.green : COLORS.textMuted },
+    { label: 'BLE', value: sensor.ble || '—', color: sensor.ble === 'yes' ? COLORS.green : COLORS.textMuted },
+    { label: 'SESSION', value: sensor.session || '—', color: COLORS.text },
+  ] : [];
+
+  return (
+    <div style={{ padding: 16, background: COLORS.surface, borderRadius: 8, border: `1px solid ${COLORS.border}`, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: connected ? 12 : 0 }}>
+        <span style={{
+          width: 10, height: 10, borderRadius: '50%',
+          background: connected ? COLORS.green : COLORS.red,
+          boxShadow: connected ? `0 0 8px ${COLORS.green}` : 'none',
+        }} />
+        <span style={{ color: COLORS.gold, fontSize: 14, fontWeight: 700, letterSpacing: 1 }}>
+          STEVAL-PROTEUS1
+        </span>
+        <span style={{ color: COLORS.textMuted, fontSize: 11, letterSpacing: 0.5 }}>
+          {connected ? `${sensor.port} — Sovereign Sensor v0.3.0` : 'Not connected'}
+        </span>
+      </div>
+      {connected && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
+          {items.map(item => (
+            <div key={item.label} style={{ padding: '6px 10px', background: COLORS.bg, borderRadius: 4, border: `1px solid ${COLORS.border}` }}>
+              <div style={{ color: COLORS.textMuted, fontSize: 9, letterSpacing: 1, marginBottom: 2 }}>{item.label}</div>
+              <div style={{ color: item.color, fontSize: 13, fontWeight: 700 }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SensorNodesTab() {
   const [signalData, setSignalData] = useState({ signals: [], categories: {} });
   const [loading, setLoading] = useState(true);
@@ -257,6 +326,7 @@ function SensorNodesTab() {
 
   return (
     <div style={{ padding: '24px 0' }}>
+      <HardwareSensorPanel />
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ color: COLORS.gold, fontSize: 20, fontWeight: 700, letterSpacing: 1, margin: 0 }}>
           SENSOR NODES

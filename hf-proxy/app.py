@@ -56,7 +56,7 @@ llm = LLMManager()
 # ─── SOVEREIGN-LIB IMPORTS (graceful) ────────────────────────
 IMUTimeSeries = None
 extract_imu_features = None
-GolfPhaseDetector = None
+PhaseDetector = None
 encode_motion = None
 sovereign_lib_available = False
 
@@ -64,7 +64,7 @@ try:
     sys.path.insert(0, str(SOVEREIGN_LIB))
     from sovereign_motion.imu import IMUTimeSeries
     from sovereign_motion.features import extract_imu_features
-    from sovereign_motion.phase_detect import GolfPhaseDetector
+    from sovereign_motion.phase_detect import PhaseDetector
     from sovereign_topo.encode import encode_motion
     sovereign_lib_available = True
 except ImportError as e:
@@ -412,13 +412,21 @@ async def encode(swing_id: str):
     if not record:
         return JSONResponse({"error": "Swing not found"}, status_code=404)
 
-    if encode_motion is not None and record.features:
-        try:
-            topology = encode_motion(record.features)
-            store.update(swing_id, topology=topology, status="encoded")
-            return {"id": swing_id, "topology": topology, "status": "encoded"}
-        except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=500)
+    if encode_motion is not None:
+        upload_path = list(UPLOAD_DIR.glob(f"{swing_id}_*"))
+        if upload_path:
+            try:
+                ts = IMUTimeSeries.from_csv(str(upload_path[0]))
+                topology = encode_motion(ts)
+                # Add phase detection if available
+                if PhaseDetector is not None:
+                    detector = PhaseDetector()
+                    phase_result = detector.detect(ts)
+                    topology["phases"] = phase_result
+                store.update(swing_id, topology=topology, status="encoded")
+                return {"id": swing_id, "topology": topology, "status": "encoded"}
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, status_code=500)
 
     result = run_sovereign_cli("encode", "--swing", swing_id)
     if "error" not in result:
@@ -497,6 +505,78 @@ async def get_swing(swing_id: str):
     if not record:
         return JSONResponse({"error": "Swing not found"}, status_code=404)
     return record.to_dict()
+
+
+@app.get("/api/swing/{swing_id}/data")
+async def get_swing_data(swing_id: str, downsample: int = 1):
+    """Return parsed CSV time-series as JSON for charting."""
+    record = store.load(swing_id)
+    if not record:
+        return JSONResponse({"error": "Swing not found"}, status_code=404)
+
+    # Find the CSV file
+    csv_files = list(UPLOAD_DIR.glob(f"{swing_id}_*"))
+    if not csv_files:
+        return JSONResponse({"error": "CSV file not found"}, status_code=404)
+
+    text = csv_files[0].read_text(encoding="utf-8-sig")
+    lines = text.splitlines()
+
+    imu_samples = []
+    impact_samples = []
+    in_impact = False
+    header = None
+    impact_header = None
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("# impact_section"):
+            in_impact = True
+            continue
+        if stripped.startswith("#"):
+            continue
+
+        if in_impact and impact_header is None:
+            impact_header = [c.strip() for c in stripped.split(",")]
+            continue
+        if not in_impact and header is None:
+            header = [c.strip() for c in stripped.split(",")]
+            continue
+
+        cols = stripped.split(",")
+        if in_impact and impact_header:
+            row = {}
+            for i, col in enumerate(impact_header):
+                if i < len(cols):
+                    try:
+                        row[col] = int(cols[i]) if "idx" in col else float(cols[i])
+                    except ValueError:
+                        row[col] = cols[i].strip()
+            impact_samples.append(row)
+        elif header:
+            row = {}
+            for i, col in enumerate(header):
+                if i < len(cols):
+                    try:
+                        row[col] = float(cols[i])
+                    except ValueError:
+                        row[col] = cols[i].strip()
+            imu_samples.append(row)
+
+    # Downsample if requested (e.g., downsample=5 keeps every 5th sample)
+    ds = max(1, downsample)
+    if ds > 1:
+        imu_samples = imu_samples[::ds]
+
+    return {
+        "swing_id": swing_id,
+        "imu_count": len(imu_samples),
+        "impact_count": len(impact_samples),
+        "imu": imu_samples,
+        "impact": impact_samples,
+    }
 
 
 # ─── BASELINES ───────────────────────────────────────────────
