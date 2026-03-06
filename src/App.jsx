@@ -1676,24 +1676,35 @@ function SignalMonitorTab() {
 // ─── STATUS BAR ────────────────────────────────────────────
 function StatusBar() {
   const [health, setHealth] = useState(null);
+  const [latency, setLatency] = useState(null);
+  const [lastCheck, setLastCheck] = useState(null);
 
   useEffect(() => {
     const check = async () => {
+      const start = performance.now();
       try {
         const resp = await fetch('/api/health');
         const data = await resp.json();
         setHealth(data);
-      } catch { setHealth(null); }
+        setLatency(Math.round(performance.now() - start));
+      } catch {
+        setHealth(null);
+        setLatency(null);
+      }
+      setLastCheck(new Date());
     };
     check();
     const interval = setInterval(check, 15000);
     return () => clearInterval(interval);
   }, []);
 
+  const analyzed = health?.analyzed ?? 0;
+  const total = health?.swings ?? 0;
+
   return (
     <div style={{
       position: 'fixed', bottom: 0, left: 0, right: 0,
-      height: 24, background: '#08090d', borderTop: `1px solid ${COLORS.border}`,
+      height: 26, background: '#08090d', borderTop: `1px solid ${COLORS.border}`,
       display: 'flex', alignItems: 'center', padding: '0 16px', gap: 16,
       fontSize: 9, color: COLORS.textMuted, zIndex: 100,
     }}>
@@ -1701,20 +1712,32 @@ function StatusBar() {
         <span style={{
           width: 6, height: 6, borderRadius: '50%',
           background: health ? COLORS.green : COLORS.red,
+          boxShadow: health ? `0 0 4px ${COLORS.green}60` : `0 0 4px ${COLORS.red}60`,
         }} />
-        {health ? 'Backend OK' : 'Offline'}
+        {health ? 'Connected' : 'Offline'}
       </span>
+      {latency != null && (
+        <span style={{ color: latency < 200 ? COLORS.green : latency < 500 ? '#e0c040' : COLORS.red }}>
+          {latency}ms
+        </span>
+      )}
       {health?.sovereign_lib && (
-        <span style={{ color: COLORS.green }}>sovereign-lib</span>
+        <span style={{ color: COLORS.green, display: 'flex', alignItems: 'center', gap: 3 }}>
+          <span style={{ width: 4, height: 4, borderRadius: '50%', background: COLORS.green }} />
+          sovereign-lib
+        </span>
       )}
-      {health?.swings != null && (
-        <span>{health.swings} sessions</span>
+      {total > 0 && (
+        <span>{analyzed}/{total} analyzed</span>
       )}
-      <span style={{ marginLeft: 'auto', letterSpacing: 1 }}>
+      {health?.uptime_s != null && (
+        <span>uptime {health.uptime_s < 3600 ? `${Math.round(health.uptime_s / 60)}m` : `${(health.uptime_s / 3600).toFixed(1)}h`}</span>
+      )}
+      <span style={{ marginLeft: 'auto', letterSpacing: 1, color: COLORS.gold + '80' }}>
         SOVEREIGN MOTION v1.0
       </span>
       <span style={{ color: COLORS.textMuted }}>
-        [1-9] switch tabs
+        [?] help
       </span>
     </div>
   );

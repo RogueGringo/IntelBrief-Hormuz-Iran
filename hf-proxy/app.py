@@ -31,6 +31,8 @@ from llm_manager import LLMManager
 from swing_store import SwingRecord, SwingStore
 
 # ─── APP SETUP ────────────────────────────────────────────────
+_start_time = time.time()
+
 app = FastAPI(
     title="Sovereign Motion API",
     version="1.0.0",
@@ -184,13 +186,17 @@ def run_sovereign_cli(*args: str) -> dict[str, Any]:
 # ─── HEALTH ───────────────────────────────────────────────────
 @app.get("/api/health")
 async def health():
+    all_swings = store.list_all()
+    analyzed = sum(1 for s in all_swings if s.get("status") == "analyzed")
     return {
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "sovereign_lib": sovereign_lib_available,
         "llm_gpu": llm.gpu_slot is not None,
         "llm_cpu": llm.cpu_slot is not None,
-        "swings": len(store.list_all()),
+        "swings": len(all_swings),
+        "analyzed": analyzed,
+        "uptime_s": round(time.time() - _start_time, 1),
     }
 
 
