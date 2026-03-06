@@ -676,6 +676,45 @@ async def get_swing(swing_id: str):
     return record.to_dict()
 
 
+@app.delete("/api/swing/{swing_id}")
+async def delete_swing(swing_id: str):
+    """Delete a swing session and its uploaded file."""
+    record = store.load(swing_id)
+    if not record:
+        return JSONResponse({"error": "Swing not found"}, status_code=404)
+    # Remove store JSON
+    store_path = DATA_DIR / "swings" / f"{swing_id}.json"
+    if store_path.exists():
+        store_path.unlink()
+    # Remove upload CSV
+    for f in UPLOAD_DIR.glob(f"{swing_id}_*"):
+        f.unlink()
+    # Remove baseline if exists
+    baseline_path = BASELINE_DIR / f"{swing_id}.json"
+    if baseline_path.exists():
+        baseline_path.unlink()
+    return {"status": "deleted", "id": swing_id}
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """Aggregate statistics across all sessions."""
+    all_swings = store.list_all()
+    total = len(all_swings)
+    analyzed = sum(1 for s in all_swings if s.get("status") == "analyzed")
+    classifications = {}
+    for s in all_swings:
+        c = s.get("classification")
+        if c:
+            classifications[c] = classifications.get(c, 0) + 1
+    return {
+        "total_sessions": total,
+        "analyzed": analyzed,
+        "classifications": classifications,
+        "baselines": len(list(BASELINE_DIR.glob("*.json"))),
+    }
+
+
 @app.get("/api/swing/{swing_id}/report")
 async def get_swing_report(swing_id: str):
     """Generate a comprehensive analysis report for a session."""

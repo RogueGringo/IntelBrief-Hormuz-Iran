@@ -562,6 +562,24 @@ export default function SessionFeedTab() {
                   >
                     Save Baseline
                   </button>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Delete session ${id}? This cannot be undone.`)) return;
+                      await fetch(`/api/swing/${id}`, { method: 'DELETE' });
+                      // Direct fetch bypasses cache
+                      const resp = await fetch('/api/swings');
+                      const updated = await resp.json();
+                      if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
+                    }}
+                    style={{
+                      padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+                      cursor: 'pointer', background: `${COLORS.red}10`,
+                      border: `1px solid ${COLORS.red}30`, color: COLORS.red,
+                      marginLeft: 'auto',
+                    }}
+                  >
+                    Delete
+                  </button>
                 </div>
 
                 {/* Expandable detail */}
