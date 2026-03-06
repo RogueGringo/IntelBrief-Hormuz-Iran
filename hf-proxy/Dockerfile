@@ -4,8 +4,8 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 COPY index.html vite.config.js ./
 COPY src/ src/
-# Build with base=/ since HF Space serves at root
-RUN sed -i "s|base: '/IntelBrief-Hormuz-Iran/'|base: '/'|" vite.config.js && npm run build
+# Build frontend
+RUN npm run build
 
 FROM python:3.11-slim
 WORKDIR /app
