@@ -427,9 +427,60 @@ async def stop_capture():
 @app.get("/api/sensor/capture/status")
 async def capture_status():
     """Check capture daemon status."""
-    if _capture_process and _capture_process.poll() is None:
-        return {"running": True, "pid": _capture_process.pid}
-    return {"running": False}
+    usb_running = _capture_process and _capture_process.poll() is None
+    ble_running = _ble_capture_process and _ble_capture_process.poll() is None
+    return {
+        "running": usb_running or ble_running,
+        "usb": {"running": usb_running, "pid": _capture_process.pid if usb_running else None},
+        "ble": {"running": ble_running, "pid": _ble_capture_process.pid if ble_running else None},
+    }
+
+
+# ─── BLE CAPTURE DAEMON CONTROL ─────────────────────────────
+_ble_capture_process = None
+
+@app.post("/api/sensor/ble/capture/start")
+async def start_ble_capture(request: Request):
+    """Start the BLE capture daemon as a subprocess."""
+    global _ble_capture_process
+    if _ble_capture_process and _ble_capture_process.poll() is None:
+        return {"status": "already_running", "pid": _ble_capture_process.pid}
+
+    daemon_path = Path(__file__).parent.parent / "FW_DEV" / "Proteus1" / "sovereign-sensor" / "tools" / "ble_capture_daemon.py"
+    if not daemon_path.exists():
+        return JSONResponse({"error": "BLE capture daemon not found"}, status_code=404)
+
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    rate = body.get("rate", 100)
+    cmd = [sys.executable, str(daemon_path), "--api", "http://localhost:8000", "--rate", str(rate)]
+
+    _ble_capture_process = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    return {"status": "started", "pid": _ble_capture_process.pid, "rate_hz": rate}
+
+
+@app.post("/api/sensor/ble/capture/stop")
+async def stop_ble_capture():
+    """Stop the BLE capture daemon."""
+    global _ble_capture_process
+    if not _ble_capture_process or _ble_capture_process.poll() is not None:
+        return {"status": "not_running"}
+
+    _ble_capture_process.terminate()
+    try:
+        _ble_capture_process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        _ble_capture_process.kill()
+
+    pid = _ble_capture_process.pid
+    _ble_capture_process = None
+    return {"status": "stopped", "pid": pid}
 
 
 # ─── LIVE STREAM ─────────────────────────────────────────────
