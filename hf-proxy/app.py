@@ -20,9 +20,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import asyncio
+
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from llm_manager import LLMManager
@@ -288,6 +290,92 @@ async def sensor_command(request: Request):
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ─── LIVE STREAM ─────────────────────────────────────────────
+@app.get("/api/sensor/stream")
+async def sensor_stream():
+    """Server-Sent Events stream of live IMU data from sensor."""
+
+    async def event_generator():
+        import serial
+        import serial.tools.list_ports
+
+        port_name = None
+        for port in serial.tools.list_ports.comports():
+            hwid = (port.hwid or "").upper()
+            if "0483:5740" in hwid:
+                port_name = port.device
+                break
+
+        if not port_name:
+            yield f"data: {json.dumps({'error': 'Sensor not found'})}\n\n"
+            return
+
+        try:
+            ser = serial.Serial(port_name, 115200, timeout=0.1, dsrdtr=True)
+            ser.dtr = True
+            await asyncio.sleep(0.5)
+            ser.reset_input_buffer()
+
+            yield f"data: {json.dumps({'event': 'connected', 'port': port_name})}\n\n"
+
+            buf = ""
+            header = None
+            sample_count = 0
+
+            while True:
+                if ser.in_waiting > 0:
+                    chunk = ser.read(ser.in_waiting).decode("utf-8", errors="replace")
+                    buf += chunk
+
+                    while "\n" in buf:
+                        line, buf = buf.split("\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+
+                        if line.startswith("#"):
+                            yield f"data: {json.dumps({'event': 'meta', 'line': line})}\n\n"
+                            continue
+
+                        if header is None:
+                            header = [c.strip() for c in line.split(",")]
+                            yield f"data: {json.dumps({'event': 'header', 'columns': header})}\n\n"
+                            continue
+
+                        # Parse data row
+                        cols = line.split(",")
+                        row = {}
+                        for i, col_name in enumerate(header):
+                            if i < len(cols):
+                                try:
+                                    row[col_name] = float(cols[i])
+                                except ValueError:
+                                    row[col_name] = cols[i].strip()
+                        sample_count += 1
+                        row["_n"] = sample_count
+                        yield f"data: {json.dumps({'event': 'sample', 'd': row})}\n\n"
+                else:
+                    await asyncio.sleep(0.01)
+
+        except Exception as e:
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+        finally:
+            try:
+                ser.close()
+            except Exception:
+                pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ─── INGEST ──────────────────────────────────────────────────

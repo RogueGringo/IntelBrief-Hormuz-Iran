@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentDashboard, compareSwings, swapModel, triggerDistill, triggerAgentLoop } from './DataService.jsx';
 import { COLORS, CATEGORY_COLORS, CLASS_COLORS } from "./theme.js";
 import MotionPatternsTab from './PatternsTab.jsx';
@@ -222,9 +222,124 @@ function worstSeverity(signals) {
   return worst;
 }
 
+function LiveStreamPanel({ visible, onClose }) {
+  const [samples, setSamples] = useState([]);
+  const [status, setStatus] = useState('connecting');
+  const [meta, setMeta] = useState([]);
+  const eventSourceRef = useRef(null);
+  const maxSamples = 500;
+
+  useEffect(() => {
+    if (!visible) return;
+
+    const es = new EventSource('/api/sensor/stream');
+    eventSourceRef.current = es;
+
+    es.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.event === 'connected') {
+          setStatus('streaming');
+        } else if (msg.event === 'header') {
+          setMeta(prev => [...prev, `Columns: ${msg.columns.join(', ')}`]);
+        } else if (msg.event === 'sample') {
+          setSamples(prev => {
+            const next = [...prev, msg.d];
+            return next.length > maxSamples ? next.slice(-maxSamples) : next;
+          });
+        } else if (msg.event === 'meta') {
+          setMeta(prev => [...prev.slice(-10), msg.line]);
+        } else if (msg.event === 'error') {
+          setStatus('error: ' + msg.message);
+        }
+      } catch (e) { /* ignore parse errors */ }
+    };
+
+    es.onerror = () => {
+      setStatus('disconnected');
+      es.close();
+    };
+
+    return () => {
+      es.close();
+      eventSourceRef.current = null;
+    };
+  }, [visible]);
+
+  if (!visible) return null;
+
+  // Mini canvas-based waveform renderer for performance
+  const accelData = samples.slice(-200);
+
+  return (
+    <div style={{
+      padding: 16, background: COLORS.surface, borderRadius: 8,
+      border: `1px solid ${COLORS.green}40`, marginBottom: 20,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: status === 'streaming' ? COLORS.green : COLORS.red,
+            boxShadow: status === 'streaming' ? `0 0 6px ${COLORS.green}` : 'none',
+            animation: status === 'streaming' ? 'pulse 1.5s infinite' : 'none',
+          }} />
+          <span style={{ color: COLORS.gold, fontSize: 12, fontWeight: 700, letterSpacing: 1 }}>
+            LIVE STREAM
+          </span>
+          <span style={{ color: COLORS.textMuted, fontSize: 10 }}>
+            {status} — {samples.length} samples
+          </span>
+        </div>
+        <button onClick={onClose} style={{
+          background: 'transparent', border: `1px solid ${COLORS.border}`,
+          color: COLORS.textMuted, fontSize: 10, padding: '3px 10px',
+          borderRadius: 4, cursor: 'pointer',
+        }}>CLOSE</button>
+      </div>
+
+      {/* Waveform display using inline SVG */}
+      {accelData.length > 2 && (
+        <div style={{ background: COLORS.bg, borderRadius: 6, padding: 8, border: `1px solid ${COLORS.border}` }}>
+          <svg width="100%" height="120" viewBox={`0 0 ${accelData.length} 120`} preserveAspectRatio="none">
+            {['accel_x_mg', 'accel_y_mg', 'accel_z_mg'].map((axis, ai) => {
+              const color = [COLORS.red, COLORS.green, COLORS.blue][ai];
+              const vals = accelData.map(s => s[axis] || 0);
+              const min = Math.min(...vals);
+              const max = Math.max(...vals);
+              const range = max - min || 1;
+              const points = vals.map((v, i) =>
+                `${i},${110 - ((v - min) / range) * 100}`
+              ).join(' ');
+              return <polyline key={axis} points={points} fill="none" stroke={color} strokeWidth="1" opacity="0.8" />;
+            })}
+          </svg>
+          <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+            {['X', 'Y', 'Z'].map((a, i) => (
+              <span key={a} style={{ fontSize: 9, color: [COLORS.red, COLORS.green, COLORS.blue][i] }}>
+                {a}: {(accelData[accelData.length - 1]?.[`accel_${a.toLowerCase()}_mg`] || 0).toFixed(0)} mg
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Session metadata */}
+      {meta.length > 0 && (
+        <div style={{ marginTop: 8, maxHeight: 60, overflow: 'auto' }}>
+          {meta.slice(-5).map((m, i) => (
+            <div key={i} style={{ fontSize: 9, color: COLORS.textMuted, fontFamily: 'monospace' }}>{m}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HardwareSensorPanel() {
   const [sensor, setSensor] = useState(null);
   const [error, setError] = useState(null);
+  const [showStream, setShowStream] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -276,6 +391,17 @@ function HardwareSensorPanel() {
         <span style={{ color: COLORS.textMuted, fontSize: 11, letterSpacing: 0.5 }}>
           {connected ? `${sensor.port} — Sovereign Sensor v0.3.0` : 'Not connected'}
         </span>
+        {connected && (
+          <button onClick={() => setShowStream(!showStream)} style={{
+            marginLeft: 'auto', padding: '4px 12px', borderRadius: 4, fontSize: 9,
+            fontWeight: 700, letterSpacing: 1, cursor: 'pointer',
+            background: showStream ? `${COLORS.green}20` : 'transparent',
+            border: `1px solid ${showStream ? COLORS.green : COLORS.border}`,
+            color: showStream ? COLORS.green : COLORS.textMuted,
+          }}>
+            {showStream ? 'STREAMING' : 'LIVE'}
+          </button>
+        )}
       </div>
       {connected && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
@@ -287,6 +413,7 @@ function HardwareSensorPanel() {
           ))}
         </div>
       )}
+      <LiveStreamPanel visible={showStream} onClose={() => setShowStream(false)} />
     </div>
   );
 }
