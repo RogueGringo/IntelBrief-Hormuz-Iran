@@ -1,29 +1,24 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchAllFeeds, FEED_SOURCES } from "./DataService.jsx";
-import { COLORS } from "./theme.js";
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { fetchSwings, fetchSwing, ingestSwing, analyzeSwing, coachSwing, classifyText } from './DataService.jsx';
+import { COLORS, CLASS_COLORS } from './theme.js';
 
-const VERIFY_SOURCES = [
-  { label: "Google News — Hormuz", url: "https://news.google.com/search?q=strait%20of%20hormuz%20oil%20tanker" },
-  { label: "EIA — This Week in Petroleum", url: "https://www.eia.gov/petroleum/weekly/" },
-  { label: "gCaptain — Maritime News", url: "https://gcaptain.com/" },
-  { label: "The Maritime Executive", url: "https://maritime-executive.com/" },
-  { label: "OilPrice.com", url: "https://oilprice.com/" },
-];
+const REFRESH_INTERVAL = 30000; // 30 seconds
 
-const REFRESH_INTERVAL = 3 * 60 * 1000; // 3 minutes
+const STATUS_COLORS = {
+  ingested: COLORS.blue,
+  featured: COLORS.orange,
+  encoded: COLORS.purple,
+  classified: COLORS.green,
+  coached: COLORS.gold,
+};
 
-export default function LiveFeedTab() {
-  const [feedData, setFeedData] = useState(null);
+export default function SessionFeedTab() {
+  const [swings, setSwings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [feedFilter, setFeedFilter] = useState("all");
-  const [classFilter, setClassFilter] = useState("all");
-  const [selectedItemKey, setSelectedItemKey] = useState(null);
-  const [lastRefresh, setLastRefresh] = useState(null);
-  const [nextRefresh, setNextRefresh] = useState(null);
-  const [refreshCountdown, setRefreshCountdown] = useState(null);
-  const refreshTimerRef = useRef(null);
-  const countdownRef = useRef(null);
-  const hasFetchedRef = useRef(false);
+  const [classFilter, setClassFilter] = useState('ALL');
+  const [expandedSwing, setExpandedSwing] = useState(null);
+  const [actionLoading, setActionLoading] = useState({});
+  const fileInputRef = useRef(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -31,151 +26,130 @@ export default function LiveFeedTab() {
     return () => { mountedRef.current = false; };
   }, []);
 
-  const doRefresh = useCallback(async () => {
-    // Only show full loading state on first fetch — use ref to avoid stale closure
-    if (!hasFetchedRef.current) setLoading(true);
+  const loadSwings = useCallback(async () => {
     try {
-      const data = await fetchAllFeeds();
-      if (!mountedRef.current) return;
-      setFeedData(data);
-      hasFetchedRef.current = true;
-      setLastRefresh(new Date());
-      setNextRefresh(new Date(Date.now() + REFRESH_INTERVAL));
+      const data = await fetchSwings();
+      if (mountedRef.current) setSwings(Array.isArray(data) ? data : []);
     } catch {
-      // keep existing data
+      // keep existing
     }
     if (mountedRef.current) setLoading(false);
-  }, []); // no dependencies — uses refs for mutable state
+  }, []);
 
-  // Initial fetch + auto-refresh
+  // Initial fetch + auto-refresh every 30s
   useEffect(() => {
-    doRefresh();
-    refreshTimerRef.current = setInterval(doRefresh, REFRESH_INTERVAL);
-    return () => clearInterval(refreshTimerRef.current);
-  }, [doRefresh]);
+    loadSwings();
+    const timer = setInterval(loadSwings, REFRESH_INTERVAL);
+    return () => clearInterval(timer);
+  }, [loadSwings]);
 
-  // Countdown timer
-  useEffect(() => {
-    if (!nextRefresh) return;
-    countdownRef.current = setInterval(() => {
-      const diff = Math.max(0, Math.ceil((nextRefresh - Date.now()) / 1000));
-      setRefreshCountdown(diff);
-    }, 1000);
-    return () => clearInterval(countdownRef.current);
-  }, [nextRefresh]);
+  const handleFiles = useCallback(async (files) => {
+    for (const file of files) {
+      await ingestSwing(file);
+    }
+    const updated = await fetchSwings();
+    if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
+  }, []);
 
-  const feedItems = feedData?.items || [];
-  const sourceStatus = feedData?.sourceStatus || {};
-  const dataSource = feedData?.source || "loading";
-  const liveCount = feedData?.liveCount || 0;
+  const handleAnalyze = useCallback(async (id) => {
+    setActionLoading(prev => ({ ...prev, [id]: 'analyzing' }));
+    try {
+      await analyzeSwing(id);
+      const updated = await fetchSwings();
+      if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
+    } catch (e) {
+      console.error('Analyze failed:', e);
+    }
+    if (mountedRef.current) setActionLoading(prev => ({ ...prev, [id]: null }));
+  }, []);
 
-  // Aggregate statistics
-  const effectCount = feedItems.filter(i => i.classification === "EFFECT").length;
-  const eventCount = feedItems.filter(i => i.classification === "EVENT").length;
-  const mixedCount = feedItems.filter(i => i.classification === "MIXED").length;
-  const signalRatio = feedItems.length > 0 ? Math.round((effectCount / feedItems.length) * 100) : 0;
+  const handleCoach = useCallback(async (id) => {
+    setActionLoading(prev => ({ ...prev, [id]: 'coaching' }));
+    try {
+      await coachSwing(id);
+      const updated = await fetchSwings();
+      if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
+    } catch (e) {
+      console.error('Coach failed:', e);
+    }
+    if (mountedRef.current) setActionLoading(prev => ({ ...prev, [id]: null }));
+  }, []);
 
-  // Filtered items
-  const filtered = feedItems.filter(item => {
-    if (feedFilter !== "all" && item.category !== feedFilter) return false;
-    if (classFilter !== "all" && item.classification !== classFilter) return false;
-    return true;
-  });
+  // Stats
+  const classifiedSwings = swings.filter(s => s.classification != null);
+  const avgConfidence = classifiedSwings.length > 0
+    ? Math.round(classifiedSwings.reduce((sum, s) => sum + (s.classification_confidence || 0), 0) / classifiedSwings.length)
+    : 0;
 
-  const categoryColors = {
-    maritime: COLORS.orange,
-    supply: COLORS.purple,
-    price: COLORS.blue,
-    macro: COLORS.gold,
-  };
-
-  const classColors = {
-    EFFECT: COLORS.green,
-    EVENT: COLORS.red,
-    MIXED: COLORS.orange,
-  };
-
-  const formatCountdown = (s) => {
-    if (s === null) return "";
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}:${String(sec).padStart(2, "0")}`;
-  };
+  // Filtered swings
+  const filtered = classFilter === 'ALL'
+    ? swings
+    : swings.filter(s => s.classification === classFilter);
 
   return (
-    <div style={{ padding: "32px", maxWidth: 1200 }}>
+    <div style={{ padding: '32px', maxWidth: 1200 }}>
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
-        <div>
-          <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 22, color: COLORS.gold, margin: "0 0 6px" }}>
-            Live Intelligence Feed
-          </h2>
-          <p style={{ fontSize: 13, color: COLORS.textDim, margin: 0, lineHeight: 1.5, maxWidth: 700 }}>
-            Real-time open-source intelligence classified as{" "}
-            <strong style={{ color: COLORS.green }}>effects</strong> (measurable physical changes) or{" "}
-            <strong style={{ color: COLORS.red }}>events</strong> (narrative, prediction, sentiment).
-            Auto-refreshes every 3 minutes from {FEED_SOURCES.length} sources.
-          </p>
-        </div>
-
-        {/* Data freshness + signal ratio */}
-        <div style={{ display: "flex", gap: 12 }}>
-          <div style={{
-            padding: "10px 14px", borderRadius: 8,
-            background: `${dataSource === "live" ? COLORS.green : dataSource === "cached" ? COLORS.blue : COLORS.orange}10`,
-            border: `1px solid ${dataSource === "live" ? COLORS.green : dataSource === "cached" ? COLORS.blue : COLORS.orange}30`,
-            textAlign: "center", minWidth: 90,
-          }}>
-            <div style={{
-              display: "flex", alignItems: "center", gap: 6, justifyContent: "center", marginBottom: 4,
-            }}>
-              <div style={{
-                width: 7, height: 7, borderRadius: "50%",
-                background: dataSource === "live" ? COLORS.green : dataSource === "cached" ? COLORS.blue : COLORS.orange,
-                animation: dataSource === "live" ? "pulse 2s infinite" : "none",
-              }} />
-              <span style={{
-                fontSize: 9, fontWeight: 700, letterSpacing: 1,
-                color: dataSource === "live" ? COLORS.green : dataSource === "cached" ? COLORS.blue : COLORS.orange,
-              }}>
-                {dataSource === "live" ? "LIVE" : dataSource === "cached" ? "CACHED" : "LOADING"}
-              </span>
-            </div>
-            <div style={{ fontSize: 9, color: COLORS.textMuted }}>
-              {liveCount}/{FEED_SOURCES.length} sources
-            </div>
-            {refreshCountdown !== null && (
-              <div style={{ fontSize: 9, color: COLORS.textMuted, marginTop: 2 }}>
-                refresh {formatCountdown(refreshCountdown)}
-              </div>
-            )}
-          </div>
-          <div style={{
-            padding: "10px 14px", borderRadius: 8,
-            background: `${signalRatio >= 50 ? COLORS.green : COLORS.red}10`,
-            border: `1px solid ${signalRatio >= 50 ? COLORS.green : COLORS.red}30`,
-            textAlign: "center",
-          }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: signalRatio >= 50 ? COLORS.green : COLORS.red }}>
-              {signalRatio}%
-            </div>
-            <div style={{ fontSize: 9, color: COLORS.textMuted, letterSpacing: 1 }}>SIGNAL RATIO</div>
-          </div>
-        </div>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{
+          fontFamily: "'Playfair Display', Georgia, serif", fontSize: 22,
+          color: COLORS.gold, margin: '0 0 6px',
+        }}>
+          Session Feed
+        </h2>
+        <p style={{ fontSize: 13, color: COLORS.textDim, margin: 0, lineHeight: 1.5, maxWidth: 700 }}>
+          Swing-by-swing session log. Upload CSV files for ingestion, then analyze and coach each swing.
+          Auto-refreshes every 30 seconds.
+        </p>
       </div>
 
-      {/* Aggregate bar */}
-      <div style={{
-        display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 20,
-      }}>
+      {/* Upload Area */}
+      <div
+        onClick={() => fileInputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.dataTransfer.files.length > 0) handleFiles(Array.from(e.dataTransfer.files));
+        }}
+        style={{
+          border: `2px dashed ${COLORS.border}`,
+          borderRadius: 12,
+          padding: '32px 20px',
+          textAlign: 'center',
+          cursor: 'pointer',
+          marginBottom: 24,
+          background: `${COLORS.surface}80`,
+          transition: 'border-color 0.2s',
+        }}
+      >
+        <div style={{ fontSize: 14, color: COLORS.textDim, marginBottom: 6 }}>
+          Drop CSV files here or click to upload
+        </div>
+        <div style={{ fontSize: 11, color: COLORS.textMuted }}>
+          Files will be ingested into the motion pipeline
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv"
+          multiple
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            if (e.target.files.length > 0) handleFiles(Array.from(e.target.files));
+            e.target.value = '';
+          }}
+        />
+      </div>
+
+      {/* Session Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
         {[
-          { label: "TOTAL ITEMS", value: feedItems.length, color: COLORS.gold },
-          { label: "EFFECTS (SIGNAL)", value: effectCount, color: COLORS.green },
-          { label: "EVENTS (NOISE)", value: eventCount, color: COLORS.red },
-          { label: "MIXED / AMBIGUOUS", value: mixedCount, color: COLORS.orange },
+          { label: 'TOTAL SWINGS', value: swings.length, color: COLORS.gold },
+          { label: 'CLASSIFIED', value: classifiedSwings.length, color: COLORS.green },
+          { label: 'AVG CONFIDENCE', value: `${avgConfidence}%`, color: COLORS.blue },
         ].map((stat, i) => (
           <div key={i} style={{
-            padding: "14px 16px", borderRadius: 8, textAlign: "center",
+            padding: '14px 16px', borderRadius: 8, textAlign: 'center',
             background: `${stat.color}08`, border: `1px solid ${stat.color}20`,
           }}>
             <div style={{ fontSize: 24, fontWeight: 800, color: stat.color }}>{stat.value}</div>
@@ -184,196 +158,256 @@ export default function LiveFeedTab() {
         ))}
       </div>
 
-      {/* Filters */}
+      {/* Filter Controls */}
       <div style={{
-        display: "flex", gap: 24, marginBottom: 20, padding: "14px 20px",
+        display: 'flex', gap: 8, marginBottom: 20, padding: '12px 16px',
         background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10,
-        alignItems: "center",
+        alignItems: 'center',
       }}>
-        <div>
-          <div style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 1, marginBottom: 6 }}>SOURCE TYPE</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            {["all", "maritime", "supply", "price", "macro"].map(cat => (
-              <button key={cat} onClick={() => setFeedFilter(cat)} style={{
-                padding: "4px 10px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-                cursor: "pointer", border: "1px solid", textTransform: "uppercase", letterSpacing: 0.5,
-                background: feedFilter === cat ? (cat === "all" ? COLORS.gold + "20" : (categoryColors[cat] || COLORS.gold) + "25") : "transparent",
-                borderColor: feedFilter === cat ? (cat === "all" ? COLORS.gold : categoryColors[cat] || COLORS.gold) : COLORS.border,
-                color: feedFilter === cat ? (cat === "all" ? COLORS.gold : categoryColors[cat] || COLORS.gold) : COLORS.textMuted,
-              }}>
-                {cat}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 1, marginBottom: 6 }}>CLASSIFICATION</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            {["all", "EFFECT", "EVENT", "MIXED"].map(cls => (
-              <button key={cls} onClick={() => setClassFilter(cls)} style={{
-                padding: "4px 10px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-                cursor: "pointer", border: "1px solid", letterSpacing: 0.5,
-                background: classFilter === cls ? (cls === "all" ? COLORS.gold + "20" : (classColors[cls] || COLORS.gold) + "25") : "transparent",
-                borderColor: classFilter === cls ? (cls === "all" ? COLORS.gold : classColors[cls] || COLORS.gold) : COLORS.border,
-                color: classFilter === cls ? (cls === "all" ? COLORS.gold : classColors[cls] || COLORS.gold) : COLORS.textMuted,
-              }}>
-                {cls === "all" ? "ALL" : cls}
-              </button>
-            ))}
-          </div>
-        </div>
-        <button
-          onClick={doRefresh}
-          style={{
-            marginLeft: "auto", padding: "8px 16px", borderRadius: 6, fontSize: 10,
-            fontWeight: 700, letterSpacing: 1, cursor: "pointer",
-            background: `${COLORS.gold}15`, border: `1px solid ${COLORS.gold}40`,
-            color: COLORS.gold,
-          }}
-        >
-          REFRESH NOW
+        <span style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 1, marginRight: 8 }}>FILTER</span>
+        {['ALL', 'CLEAN', 'NOISY', 'MIXED'].map(f => (
+          <button key={f} onClick={() => setClassFilter(f)} style={{
+            padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+            cursor: 'pointer', border: '1px solid', letterSpacing: 0.5,
+            background: classFilter === f
+              ? (f === 'ALL' ? `${COLORS.gold}20` : `${CLASS_COLORS[f] || COLORS.gold}25`)
+              : 'transparent',
+            borderColor: classFilter === f
+              ? (f === 'ALL' ? COLORS.gold : CLASS_COLORS[f] || COLORS.gold)
+              : COLORS.border,
+            color: classFilter === f
+              ? (f === 'ALL' ? COLORS.gold : CLASS_COLORS[f] || COLORS.gold)
+              : COLORS.textMuted,
+          }}>
+            {f}
+          </button>
+        ))}
+        <button onClick={loadSwings} style={{
+          marginLeft: 'auto', padding: '6px 14px', borderRadius: 5, fontSize: 10,
+          fontWeight: 700, letterSpacing: 1, cursor: 'pointer',
+          background: `${COLORS.gold}15`, border: `1px solid ${COLORS.gold}40`, color: COLORS.gold,
+        }}>
+          REFRESH
         </button>
       </div>
 
       {/* Loading state */}
-      {loading && feedItems.length === 0 && (
-        <div style={{ textAlign: "center", padding: 40, color: COLORS.textDim }}>
-          <div style={{ fontSize: 14, marginBottom: 8 }}>Fetching live intelligence feeds...</div>
-          <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 12 }}>
-            Querying {FEED_SOURCES.length} open-source feeds via CORS proxies
-          </div>
-          <div style={{ width: 200, height: 4, borderRadius: 2, background: COLORS.border, margin: "0 auto", overflow: "hidden" }}>
-            <div style={{ width: "60%", height: "100%", background: COLORS.gold, borderRadius: 2, animation: "pulse 1.5s infinite" }} />
+      {loading && swings.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 40, color: COLORS.textDim }}>
+          <div style={{ fontSize: 14, marginBottom: 8 }}>Loading swing session data...</div>
+          <div style={{
+            width: 200, height: 4, borderRadius: 2,
+            background: COLORS.border, margin: '0 auto', overflow: 'hidden',
+          }}>
+            <div style={{
+              width: '60%', height: '100%', background: COLORS.gold,
+              borderRadius: 2, animation: 'pulse 1.5s infinite',
+            }} />
           </div>
         </div>
       )}
 
-      {/* Feed items */}
-      {feedItems.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {filtered.map((item) => {
-            const itemKey = (item.title + item.link).slice(0, 120);
-            const isSelected = selectedItemKey === itemKey;
-            const classColor = classColors[item.classification] || COLORS.textMuted;
-            const catColor = categoryColors[item.category] || COLORS.gold;
+      {/* Empty state */}
+      {!loading && swings.length === 0 && (
+        <div style={{
+          textAlign: 'center', padding: 40,
+          background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12,
+        }}>
+          <div style={{ fontSize: 14, color: COLORS.textDim, marginBottom: 8 }}>
+            No swings ingested yet. Upload CSV files above to get started.
+          </div>
+        </div>
+      )}
+
+      {/* Swing Cards */}
+      {filtered.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filtered.map((swing) => {
+            const id = swing.id || swing.swing_id;
+            const isExpanded = expandedSwing === id;
+            const classColor = CLASS_COLORS[swing.classification] || COLORS.textMuted;
+            const statusColor = STATUS_COLORS[swing.status] || COLORS.textMuted;
+            const isAnalyzing = actionLoading[id] === 'analyzing';
+            const isCoaching = actionLoading[id] === 'coaching';
+
             return (
               <div
-                key={itemKey}
-                onClick={() => setSelectedItemKey(isSelected ? null : itemKey)}
+                key={id}
+                onClick={() => setExpandedSwing(isExpanded ? null : id)}
                 style={{
-                  background: isSelected ? `${classColor}08` : COLORS.surface,
-                  border: `1px solid ${isSelected ? classColor + "40" : COLORS.border}`,
-                  borderLeft: `3px solid ${classColor}`,
+                  background: isExpanded ? `${classColor}08` : COLORS.surface,
+                  border: `1px solid ${isExpanded ? classColor + '40' : COLORS.border}`,
                   borderRadius: 10,
-                  padding: "16px 20px",
-                  cursor: "pointer",
-                  transition: "all 0.2s",
+                  padding: '16px 20px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
                 }}
               >
-                {/* Top row */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {/* Header row */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span style={{
-                      fontSize: 9, fontWeight: 700, letterSpacing: 1,
-                      padding: "2px 8px", borderRadius: 3,
-                      background: `${classColor}20`, color: classColor,
+                      fontFamily: 'monospace', fontSize: 12, fontWeight: 700,
+                      color: COLORS.text,
                     }}>
-                      {item.classification}
+                      {id}
                     </span>
-                    <span style={{
-                      fontSize: 9, letterSpacing: 0.5,
-                      padding: "2px 8px", borderRadius: 3,
-                      background: `${catColor}15`, color: catColor,
-                    }}>
-                      {item.source}
-                    </span>
-                    {item.confidence > 70 && (
-                      <span style={{ fontSize: 9, color: COLORS.textMuted }}>
-                        {item.confidence}% confidence
+                    {swing.filename && (
+                      <span style={{ fontSize: 11, color: COLORS.textDim }}>
+                        {swing.filename}
+                      </span>
+                    )}
+                    {swing.status && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
+                        padding: '2px 8px', borderRadius: 10,
+                        background: `${statusColor}20`, color: statusColor,
+                      }}>
+                        {swing.status.toUpperCase()}
                       </span>
                     )}
                   </div>
-                  <span style={{ fontSize: 10, color: COLORS.textMuted }}>
-                    {item.pubDate ? new Date(item.pubDate).toLocaleString("en-US", {
-                      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-                    }) : ""}
+
+                  {/* Classification badge */}
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, letterSpacing: 1,
+                    padding: '3px 10px', borderRadius: 4,
+                    background: swing.classification ? `${classColor}20` : 'transparent',
+                    color: swing.classification ? classColor : COLORS.textMuted,
+                    border: swing.classification ? 'none' : `1px solid ${COLORS.border}`,
+                  }}>
+                    {swing.classification || '\u2014'}
                   </span>
                 </div>
 
-                {/* Title */}
-                <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.text, lineHeight: 1.4, marginBottom: 6 }}>
-                  {item.title}
+                {/* Ground truth row */}
+                {swing.ground_truth && (
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                    {swing.ground_truth.ball_speed != null && (
+                      <span style={{
+                        fontSize: 10, padding: '2px 8px', borderRadius: 4,
+                        background: `${COLORS.blue}12`, color: COLORS.blue,
+                        border: `1px solid ${COLORS.blue}20`,
+                      }}>
+                        Ball: {swing.ground_truth.ball_speed} mph
+                      </span>
+                    )}
+                    {swing.ground_truth.launch_angle != null && (
+                      <span style={{
+                        fontSize: 10, padding: '2px 8px', borderRadius: 4,
+                        background: `${COLORS.orange}12`, color: COLORS.orange,
+                        border: `1px solid ${COLORS.orange}20`,
+                      }}>
+                        Launch: {swing.ground_truth.launch_angle}°
+                      </span>
+                    )}
+                    {swing.ground_truth.spin_rate != null && (
+                      <span style={{
+                        fontSize: 10, padding: '2px 8px', borderRadius: 4,
+                        background: `${COLORS.purple}12`, color: COLORS.purple,
+                        border: `1px solid ${COLORS.purple}20`,
+                      }}>
+                        Spin: {swing.ground_truth.spin_rate} rpm
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    disabled={!!swing.classification || isAnalyzing}
+                    onClick={() => handleAnalyze(id)}
+                    style={{
+                      padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+                      cursor: swing.classification || isAnalyzing ? 'not-allowed' : 'pointer',
+                      background: swing.classification
+                        ? `${COLORS.textMuted}10`
+                        : `${COLORS.green}15`,
+                      border: `1px solid ${swing.classification ? COLORS.textMuted + '30' : COLORS.green + '40'}`,
+                      color: swing.classification ? COLORS.textMuted : COLORS.green,
+                      opacity: swing.classification ? 0.5 : 1,
+                    }}
+                  >
+                    {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+                  </button>
+                  <button
+                    disabled={isCoaching}
+                    onClick={() => handleCoach(id)}
+                    style={{
+                      padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+                      cursor: isCoaching ? 'not-allowed' : 'pointer',
+                      background: `${COLORS.gold}15`,
+                      border: `1px solid ${COLORS.gold}40`,
+                      color: COLORS.gold,
+                    }}
+                  >
+                    {isCoaching ? 'Coaching...' : 'Coach'}
+                  </button>
                 </div>
 
-                {/* Description */}
-                <div style={{
-                  fontSize: 12, color: COLORS.textDim, lineHeight: 1.6,
-                  overflow: isSelected ? "visible" : "hidden",
-                  maxHeight: isSelected ? "none" : 40,
-                }}>
-                  {item.description}
-                </div>
+                {/* Expandable detail */}
+                {isExpanded && (
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${COLORS.border}` }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                      {/* Features */}
+                      <div>
+                        <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                          FEATURES
+                        </div>
+                        <div style={{ fontSize: 12, color: COLORS.textDim }}>
+                          Feature count: {swing.feature_count ?? swing.features?.length ?? '\u2014'}
+                        </div>
+                      </div>
 
-                {/* Expanded details */}
-                {isSelected && (
-                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${COLORS.border}` }}>
-                    <div style={{ display: "flex", gap: 16 }}>
-                      {item.effectHits && item.effectHits.length > 0 && (
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 9, color: COLORS.green, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
-                            EFFECT TERMS DETECTED
-                          </div>
-                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                            {item.effectHits.map((k, j) => (
-                              <span key={j} style={{
-                                padding: "2px 6px", borderRadius: 3, fontSize: 10,
-                                background: `${COLORS.green}15`, color: COLORS.green,
-                                border: `1px solid ${COLORS.green}25`,
-                              }}>{k}</span>
-                            ))}
-                          </div>
+                      {/* Topology summary */}
+                      <div>
+                        <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                          TOPOLOGY
                         </div>
-                      )}
-                      {item.eventHits && item.eventHits.length > 0 && (
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 9, color: COLORS.red, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
-                            EVENT TERMS DETECTED
-                          </div>
-                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                            {item.eventHits.map((k, j) => (
-                              <span key={j} style={{
-                                padding: "2px 6px", borderRadius: 3, fontSize: 10,
-                                background: `${COLORS.red}15`, color: COLORS.red,
-                                border: `1px solid ${COLORS.red}25`,
-                              }}>{k}</span>
-                            ))}
-                          </div>
+                        <div style={{ fontSize: 12, color: COLORS.textDim }}>
+                          Betti-0: {swing.betti_0 ?? swing.topology?.betti_0 ?? '\u2014'}
                         </div>
-                      )}
+                        <div style={{ fontSize: 12, color: COLORS.textDim }}>
+                          Total persistence: {swing.total_persistence ?? swing.topology?.total_persistence ?? '\u2014'}
+                        </div>
+                      </div>
                     </div>
-                    {item.chainMap && item.chainMap.length > 0 && (
-                      <div style={{ marginTop: 10 }}>
-                        <div style={{ fontSize: 9, color: COLORS.gold, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
-                          MAPS TO EFFECT CHAIN
+
+                    {/* Classification details */}
+                    {swing.classification && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                          CLASSIFICATION DETAILS
                         </div>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {item.chainMap.map((chain, j) => (
-                            <span key={j} style={{
-                              padding: "3px 8px", borderRadius: 4, fontSize: 10,
-                              background: `${COLORS.gold}12`, color: COLORS.gold,
-                              border: `1px solid ${COLORS.gold}25`, fontWeight: 600,
-                            }}>{chain}</span>
-                          ))}
+                        <div style={{ display: 'flex', gap: 16 }}>
+                          <span style={{ fontSize: 12, color: COLORS.textDim }}>
+                            Class: <strong style={{ color: classColor }}>{swing.classification}</strong>
+                          </span>
+                          {swing.classification_confidence != null && (
+                            <span style={{ fontSize: 12, color: COLORS.textDim }}>
+                              Confidence: <strong style={{ color: COLORS.text }}>{swing.classification_confidence}%</strong>
+                            </span>
+                          )}
                         </div>
                       </div>
                     )}
-                    {item.link && item.link !== "#" && (
-                      <div style={{ marginTop: 8 }}>
-                        <a href={item.link} target="_blank" rel="noopener noreferrer" style={{
-                          fontSize: 10, color: COLORS.blue, textDecoration: "none",
+
+                    {/* Coaching notes */}
+                    {swing.coaching_notes && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 9, color: COLORS.gold, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                          COACHING NOTES
+                        </div>
+                        <div style={{
+                          fontSize: 12, color: COLORS.textDim, lineHeight: 1.6,
+                          padding: '8px 12px', borderRadius: 6,
+                          background: `${COLORS.gold}08`, border: `1px solid ${COLORS.gold}15`,
                         }}>
-                          Open source article →
-                        </a>
+                          {swing.coaching_notes}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -384,76 +418,16 @@ export default function LiveFeedTab() {
         </div>
       )}
 
-      {/* No results */}
-      {!loading && feedItems.length === 0 && (
+      {/* No results from filter */}
+      {!loading && swings.length > 0 && filtered.length === 0 && (
         <div style={{
-          textAlign: "center", padding: 40,
-          background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 12,
+          textAlign: 'center', padding: 30,
+          background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10,
+          color: COLORS.textDim, fontSize: 13,
         }}>
-          <div style={{ fontSize: 14, color: COLORS.textDim, marginBottom: 8 }}>
-            No live feeds available — RSS sources blocked by CORS
-          </div>
-          <div style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 1.6 }}>
-            This dashboard runs entirely client-side. Some RSS feeds block cross-origin requests.
-            Try refreshing, or check back — feeds are retried every 3 minutes via multiple CORS proxies.
-          </div>
+          No swings match the "{classFilter}" filter.
         </div>
       )}
-
-      {/* Feed source status */}
-      <div style={{
-        marginTop: 20, padding: "14px 20px", borderRadius: 10,
-        background: COLORS.surface, border: `1px solid ${COLORS.border}`,
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 1 }}>
-            DATA SOURCES — {liveCount}/{FEED_SOURCES.length} ACTIVE
-          </div>
-          {lastRefresh && (
-            <div style={{ fontSize: 9, color: COLORS.textMuted }}>
-              Last fetched: {lastRefresh.toLocaleTimeString()}
-            </div>
-          )}
-        </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {FEED_SOURCES.map(src => {
-            const st = sourceStatus[src.id];
-            const color = categoryColors[src.category] || COLORS.gold;
-            return (
-              <div key={src.id} style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "4px 10px", borderRadius: 4,
-                background: `${color}08`, border: `1px solid ${color}15`,
-              }}>
-                <span style={{
-                  width: 6, height: 6, borderRadius: "50%",
-                  background: st?.ok ? COLORS.green : COLORS.red,
-                }} />
-                <span style={{ fontSize: 10, color: COLORS.textDim }}>{src.name}</span>
-                {st?.ok && <span style={{ fontSize: 9, color: COLORS.textMuted }}>({st.count})</span>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div style={{ marginTop: 28, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: COLORS.textMuted, marginBottom: 10 }}>
-          VERIFY UPSTREAM SOURCES
-        </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {VERIFY_SOURCES.map((src, i) => (
-            <a key={i} href={src.url} target="_blank" rel="noopener noreferrer" style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              padding: "5px 12px", borderRadius: 5, fontSize: 11,
-              background: `${COLORS.blue}10`, border: `1px solid ${COLORS.blue}20`,
-              color: COLORS.blue, textDecoration: "none", letterSpacing: 0.3,
-            }}>
-              <span style={{ width: 5, height: 5, borderRadius: "50%", background: COLORS.green, flexShrink: 0 }} />
-              {src.label}
-            </a>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
