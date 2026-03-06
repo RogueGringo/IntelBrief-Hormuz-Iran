@@ -165,6 +165,35 @@ class SovereignClient:
         """Get motion quality signals."""
         return self._get("/api/signals")
 
+    # ─── Classifier ───────────────────────────────────────
+
+    def set_label(self, session_id: str, label: str) -> dict:
+        """Set a user label on a session for classifier training."""
+        resp = self._session.put(
+            self._url(f"/api/swing/{session_id}/label"),
+            json={"label": label},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def remove_label(self, session_id: str) -> dict:
+        """Remove user label from a session."""
+        resp = self._session.delete(self._url(f"/api/swing/{session_id}/label"))
+        resp.raise_for_status()
+        return resp.json()
+
+    def classifier_status(self) -> dict:
+        """Get classifier state: label counts, MLP status."""
+        return self._get("/api/classifier/status")
+
+    def train_classifier(self) -> dict:
+        """Train MLP on labeled data."""
+        return self._post("/api/classifier/train")
+
+    def reclassify_all(self) -> dict:
+        """Re-run classifier on all analyzed sessions."""
+        return self._post("/api/classifier/reclassify")
+
     # ─── Batch ────────────────────────────────────────────
 
     def batch_analyze(self) -> list[dict]:
