@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "backend": "cd hf-proxy && uvicorn app:app --host 0.0.0.0 --port 8000 --reload",
+    "start": "concurrently \"npm run backend\" \"npm run dev\"",
+    "prod": "npm run build && cp -r dist hf-proxy/static && cd hf-proxy && uvicorn app:app --host 0.0.0.0 --port 7860"
   },
   "dependencies": {
     "react": "^18.2.0",
