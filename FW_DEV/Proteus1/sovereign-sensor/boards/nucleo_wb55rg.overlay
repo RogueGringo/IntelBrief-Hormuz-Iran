@@ -19,12 +19,38 @@
 	pinctrl-0 = <&spi1_sck_pa5 &spi1_miso_pa6 &spi1_mosi_pb5>;
 	pinctrl-names = "default";
 	status = "okay";
-	cs-gpios = <&gpioa 4 GPIO_ACTIVE_LOW>;
+	cs-gpios = <&gpioa 4 GPIO_ACTIVE_LOW>,
+	           <&gpioa 15 GPIO_ACTIVE_LOW>;
 
 	ism330dhcx@0 {
 		compatible = "st,ism330dhcx";
 		reg = <0>;
 		spi-max-frequency = <10000000>;
+	};
+
+	/*
+	 * IIS3DWB (CS1/PA15): 26.7kHz vibration sensor.
+	 * No Zephyr driver — accessed via raw SPI in impact_detect.c
+	 * using the second cs-gpios entry above.
+	 */
+};
+
+&i2c1 {
+	pinctrl-0 = <&i2c1_scl_pb8 &i2c1_sda_pb7>;
+	pinctrl-names = "default";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+
+	/* IIS2DLPC: ultra-low-power accel for wake-on-motion */
+	iis2dlpc@18 {
+		compatible = "st,iis2dlpc";
+		reg = <0x18>;
+	};
+
+	/* STTS22H: temperature sensor for drift compensation */
+	stts22h@3f {
+		compatible = "st,stts22h";
+		reg = <0x3f>;
 	};
 };
 

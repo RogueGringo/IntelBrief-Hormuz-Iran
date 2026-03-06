@@ -43,11 +43,26 @@ static struct sensor_runtime_config runtime_config = {
     .preroll_s = DEFAULT_PREROLL_S,
 };
 
-/* Forward declarations */
+/* Forward declarations — ISM330DHCX */
 int imu_init(void);
 int imu_set_rate(uint16_t rate_hz);
 int imu_read_sample(struct imu_sample *sample);
 bool imu_is_ready(void);
+
+/* Forward declarations — IIS3DWB impact + environment */
+int impact_detect_init(void);
+bool impact_is_ready(void);
+void impact_arm(void);
+void impact_disarm(void);
+int impact_capture_sample(void);
+bool impact_has_data(void);
+uint16_t impact_get_count(void);
+uint32_t impact_analyze_peak(void);
+
+int environment_init(void);
+float environment_read_temperature(void);
+bool environment_temp_ready(void);
+bool environment_wake_ready(void);
 
 /* ---------- Sensor Thread (Priority 5) ---------- */
 
@@ -113,6 +128,7 @@ static void capture_thread_fn(void *p1, void *p2, void *p3)
                 enum swing_event evt = swing_detect_check(&sample);
                 if (evt == SWING_EVENT_START) {
                     session_start();
+                    impact_arm();  /* Arm IIS3DWB for impact capture */
                     current_state = CAPTURE_STATE_CAPTURING;
                     LOG_INF("State: ARMED → CAPTURING (session %04u)",
                             session_get_id());
@@ -129,17 +145,26 @@ static void capture_thread_fn(void *p1, void *p2, void *p3)
             if (count > 0 &&
                 ring_buffer_peek(&sample, count - 1) == 0) {
                 session_add_sample();
+
+                /* Capture impact vibration in parallel */
+                if (impact_is_ready()) {
+                    impact_capture_sample();
+                }
+
                 enum swing_event evt = swing_detect_check(&sample);
 
                 /* End on swing end or max duration */
                 float duration = session_get_duration_s();
                 if (evt == SWING_EVENT_END ||
                     duration >= runtime_config.capture_duration_s) {
+                    impact_disarm();
+                    uint32_t peak = impact_analyze_peak();
                     session_end();
                     current_state = CAPTURE_STATE_TRANSFER;
                     transfer_requested = true;
-                    LOG_INF("State: CAPTURING → TRANSFER (%u samples, %.2fs)",
-                            session_get_sample_count(), (double)duration);
+                    LOG_INF("State: CAPTURING → TRANSFER (%u samples, %.2fs, impact_peak=%u mg, impact_samples=%u)",
+                            session_get_sample_count(), (double)duration,
+                            peak, impact_get_count());
                 }
             }
             k_msleep(2);
@@ -223,11 +248,60 @@ static void transport_thread_fn(void *p1, void *p2, void *p3)
     }
 }
 
+/* ---------- LED Status (RED=PD8, GREEN=PD2, BLUE=PH1) ---------- */
+
+static const struct device *led_gpiod;
+static const struct device *led_gpioh;
+static bool leds_ready = false;
+
+static void leds_init(void)
+{
+    led_gpiod = DEVICE_DT_GET(DT_NODELABEL(gpiod));
+    led_gpioh = DEVICE_DT_GET(DT_NODELABEL(gpioh));
+    if (device_is_ready(led_gpiod) && device_is_ready(led_gpioh)) {
+        gpio_pin_configure(led_gpiod, 8, GPIO_OUTPUT_INACTIVE);  /* RED */
+        gpio_pin_configure(led_gpiod, 2, GPIO_OUTPUT_INACTIVE);  /* GREEN */
+        gpio_pin_configure(led_gpioh, 1, GPIO_OUTPUT_INACTIVE);  /* BLUE */
+        leds_ready = true;
+    }
+}
+
+static void leds_set(bool red, bool green, bool blue)
+{
+    if (!leds_ready) return;
+    gpio_pin_set(led_gpiod, 8, red ? 1 : 0);
+    gpio_pin_set(led_gpiod, 2, green ? 1 : 0);
+    gpio_pin_set(led_gpioh, 1, blue ? 1 : 0);
+}
+
+static void leds_update_state(enum capture_state state)
+{
+    switch (state) {
+    case CAPTURE_STATE_IDLE:
+    case CAPTURE_STATE_ARMED:
+        leds_set(false, true, false);   /* GREEN = ready */
+        break;
+    case CAPTURE_STATE_CAPTURING:
+        leds_set(false, false, true);   /* BLUE = capturing */
+        break;
+    case CAPTURE_STATE_TRANSFER:
+        leds_set(false, true, true);    /* CYAN = transferring */
+        break;
+    case CAPTURE_STATE_STREAMING:
+        leds_set(true, false, true);    /* MAGENTA = streaming */
+        break;
+    case CAPTURE_STATE_SLEEP:
+    default:
+        leds_set(false, false, false);  /* OFF */
+        break;
+    }
+}
+
 /* ---------- Main ---------- */
 
 int main(void)
 {
-    LOG_INF("=== Sovereign Sensor v0.1.0 ===");
+    LOG_INF("=== Sovereign Sensor v0.2.0 ===");
     LOG_INF("Phase 1: Threshold Capture + USB CSV");
 
     /* Enable STBC02 power management (CEN=PD12, open-drain HIGH) */
@@ -247,6 +321,10 @@ int main(void)
         k_msleep(50);
     }
 
+    /* Initialize LEDs for status feedback */
+    leds_init();
+    leds_set(true, false, false);  /* RED = initializing */
+
     /* Initialize subsystems */
     int ret = ring_buffer_init();
     if (ret < 0) {
@@ -257,13 +335,26 @@ int main(void)
     ret = imu_init();
     if (ret < 0) {
         LOG_ERR("IMU init failed: %d", ret);
-        /* Continue anyway — threads will detect imu_is_ready() == false */
+    }
+
+    ret = impact_detect_init();
+    if (ret < 0) {
+        LOG_WRN("Impact sensor not available: %d", ret);
+    }
+
+    ret = environment_init();
+    if (ret < 0) {
+        LOG_WRN("Environment sensors not available: %d", ret);
     }
 
     ret = usb_serial_init();
     if (ret < 0) {
         LOG_ERR("USB serial init failed: %d", ret);
-        /* Continue without USB — sensor still captures */
+    }
+
+    ret = ble_service_init();
+    if (ret < 0) {
+        LOG_ERR("BLE init failed: %d", ret);
     }
 
     /* Start threads */
@@ -287,14 +378,36 @@ int main(void)
 
     LOG_INF("All threads started. Entering IDLE state.");
 
-    /* Main thread becomes idle — could handle shell commands in future */
+    leds_set(false, true, false);  /* GREEN = ready */
+
+    /* Main thread: status reporting + LED state updates + BLE notifications */
     while (1) {
-        k_msleep(5000);
-        if (imu_is_ready()) {
-            LOG_INF("Status: state=%s, ring=%d/%d, usb=%s",
-                    capture_state_name(current_state),
-                    ring_buffer_count(), RING_BUFFER_SAMPLES,
-                    usb_serial_is_connected() ? "connected" : "disconnected");
+        leds_update_state(current_state);
+
+        /* BLE status notifications every 500ms */
+        if (ble_is_connected()) {
+            ble_notify_status(current_state,
+                              usb_serial_is_connected(),
+                              session_get_id(),
+                              session_get_sample_count(),
+                              ring_buffer_count());
+        }
+
+        k_msleep(500);
+
+        /* Status log every 10 cycles (5 seconds) */
+        static uint8_t log_count = 0;
+        if (++log_count >= 10) {
+            log_count = 0;
+            if (imu_is_ready()) {
+                float temp = environment_read_temperature();
+                LOG_INF("Status: state=%s ring=%d/%d usb=%s ble=%s temp=%.1fC",
+                        capture_state_name(current_state),
+                        ring_buffer_count(), RING_BUFFER_SAMPLES,
+                        usb_serial_is_connected() ? "yes" : "no",
+                        ble_is_connected() ? "yes" : "no",
+                        (double)temp);
+            }
         }
     }
 
