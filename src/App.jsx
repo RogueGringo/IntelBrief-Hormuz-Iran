@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentDashboard, compareSwings, swapModel, triggerDistill, triggerAgentLoop, fetchAnomalies } from './DataService.jsx';
+import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentDashboard, compareSwings, swapModel, triggerDistill, triggerAgentLoop, fetchAnomalies, fetchClassifierStatus } from './DataService.jsx';
 import { COLORS, CATEGORY_COLORS, CLASS_COLORS } from "./theme.js";
 import MotionPatternsTab from './PatternsTab.jsx';
 import SessionFeedTab from './LiveFeedTab.jsx';
@@ -757,6 +757,10 @@ function ModelRegistryTab() {
   const [loopResult, setLoopResult] = useState(null);
   const [genResult, setGenResult] = useState(null);
   const [generating, setGenerating] = useState(false);
+  const [classifierStatus, setClassifierStatus] = useState(null);
+  const [training, setTraining] = useState(false);
+  const [trainResult, setTrainResult] = useState(null);
+  const [reclassifying, setReclassifying] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -768,6 +772,7 @@ function ModelRegistryTab() {
       setLlmStatus(status);
       setModels(mdls);
       setDashboard(typeof dash === 'string' ? dash : (dash?.stdout || dash?.output || ''));
+      fetchClassifierStatus().then(data => setClassifierStatus(data));
     } catch (e) {
       console.error('ModelRegistryTab load error:', e);
     } finally {
@@ -1113,6 +1118,96 @@ function ModelRegistryTab() {
             {loopResult.success
               ? (typeof loopResult.data === 'string' ? loopResult.data : 'Agent loop completed successfully.')
               : loopResult.error}
+          </div>
+        )}
+      </div>
+
+      {/* User-Trained Classifier */}
+      <div style={{
+        background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+        borderRadius: 8, padding: 20, marginBottom: 20,
+        borderLeft: `3px solid ${COLORS.gold}`,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1.5, color: COLORS.gold }}>
+              MOTION CLASSIFIER
+            </div>
+            <div style={{ fontSize: 10, color: COLORS.textDim, marginTop: 2 }}>
+              {classifierStatus?.total_labeled || 0} labeled sessions &middot; Method: {classifierStatus?.method || 'none'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              disabled={!classifierStatus?.can_train || training}
+              onClick={async () => {
+                setTraining(true);
+                try {
+                  const resp = await fetch('/api/classifier/train', { method: 'POST' });
+                  const data = await resp.json();
+                  setTrainResult(data);
+                  loadData();
+                } catch (e) { setTrainResult({ error: e.message }); }
+                setTraining(false);
+              }}
+              style={{
+                padding: '6px 16px', borderRadius: 4, fontSize: 10, fontWeight: 700,
+                letterSpacing: 1, cursor: classifierStatus?.can_train ? 'pointer' : 'not-allowed',
+                background: classifierStatus?.can_train ? COLORS.gold : COLORS.border,
+                color: classifierStatus?.can_train ? COLORS.bg : COLORS.textMuted,
+                border: 'none',
+              }}
+            >
+              {training ? 'Training...' : 'Train MLP'}
+            </button>
+            <button
+              onClick={async () => {
+                setReclassifying(true);
+                await fetch('/api/classifier/reclassify', { method: 'POST' });
+                setReclassifying(false);
+                loadData();
+              }}
+              disabled={reclassifying || !classifierStatus?.total_labeled}
+              style={{
+                padding: '6px 16px', borderRadius: 4, fontSize: 10, fontWeight: 700,
+                letterSpacing: 1, cursor: 'pointer',
+                background: 'transparent', border: `1px solid ${COLORS.border}`, color: COLORS.textDim,
+              }}
+            >
+              {reclassifying ? 'Reclassifying...' : 'Reclassify All'}
+            </button>
+          </div>
+        </div>
+        {classifierStatus?.mlp_trained && (
+          <div style={{ display: 'flex', gap: 16, padding: '8px 12px', marginBottom: 12, background: `${COLORS.green}08`, borderRadius: 4, border: `1px solid ${COLORS.green}20` }}>
+            <span style={{ fontSize: 11, color: COLORS.green, fontWeight: 600 }}>MLP Accuracy: {((classifierStatus.mlp_accuracy || 0) * 100).toFixed(1)}%</span>
+            <span style={{ fontSize: 10, color: COLORS.textDim }}>Trained: {classifierStatus.mlp_trained_at ? new Date(classifierStatus.mlp_trained_at).toLocaleString() : '\u2014'}</span>
+          </div>
+        )}
+        {trainResult && !trainResult.error && (
+          <div style={{ fontSize: 10, color: COLORS.green, marginBottom: 8 }}>
+            Trained on {trainResult.n_samples} samples — {trainResult.classes?.length} classes — {((trainResult.accuracy || 0) * 100).toFixed(1)}% accuracy
+          </div>
+        )}
+        {classifierStatus?.classes && Object.keys(classifierStatus.classes).length > 0 ? (
+          <div>
+            <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>LABEL DISTRIBUTION</div>
+            {Object.entries(classifierStatus.classes).sort((a, b) => b[1] - a[1]).map(([label, count]) => {
+              const maxCount = Math.max(...Object.values(classifierStatus.classes));
+              return (
+                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, color: COLORS.text, width: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                  <div style={{ flex: 1, height: 14, background: COLORS.bg, borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ width: `${(count / maxCount) * 100}%`, height: '100%', background: COLORS.gold, borderRadius: 2 }} />
+                  </div>
+                  <span style={{ fontSize: 10, color: COLORS.textDim, width: 30, textAlign: 'right' }}>{count}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ fontSize: 11, color: COLORS.textDim, textAlign: 'center', padding: 12 }}>
+            No labeled sessions yet. Add labels in SESSION FEED to train the classifier.
           </div>
         )}
       </div>
