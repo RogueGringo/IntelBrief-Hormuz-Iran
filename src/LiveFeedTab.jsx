@@ -400,8 +400,14 @@ export default function SessionFeedTab() {
                   } else {
                     setExpandedSwing(id);
                     if (!expandedData[id]) {
-                      fetchSwing(id).then(data => {
-                        if (mountedRef.current) setExpandedData(prev => ({ ...prev, [id]: data }));
+                      Promise.all([
+                        fetchSwing(id),
+                        fetch(`/api/swing/${id}/quality`).then(r => r.json()).catch(() => null),
+                      ]).then(([data, quality]) => {
+                        if (mountedRef.current) {
+                          const merged = { ...data, _quality: quality };
+                          setExpandedData(prev => ({ ...prev, [id]: merged }));
+                        }
                       });
                     }
                   }
@@ -571,8 +577,44 @@ export default function SessionFeedTab() {
                     follow: COLORS.green, recovery: COLORS.textDim,
                   };
 
+                  const quality = full._quality;
+
                   return (
                   <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${COLORS.border}` }}>
+                    {/* Data Quality Badge */}
+                    {quality && quality.quality && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10,
+                        padding: '6px 12px', borderRadius: 6,
+                        background: quality.score > 0.8 ? `${COLORS.green}08` : quality.score > 0.5 ? `${'#e0c040'}08` : `${COLORS.red}08`,
+                        border: `1px solid ${quality.score > 0.8 ? COLORS.green : quality.score > 0.5 ? '#e0c040' : COLORS.red}20`,
+                      }}>
+                        <span style={{
+                          fontSize: 16, fontWeight: 800,
+                          color: quality.score > 0.8 ? COLORS.green : quality.score > 0.5 ? '#e0c040' : COLORS.red,
+                        }}>
+                          {(quality.score * 100).toFixed(0)}%
+                        </span>
+                        <span style={{ fontSize: 10, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>
+                          {quality.quality}
+                        </span>
+                        {quality.issues && quality.issues.length > 0 && (
+                          <span style={{ fontSize: 9, color: COLORS.red, marginLeft: 8 }}>
+                            {quality.issues.length} issue{quality.issues.length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                          {Object.entries(quality.scores || {}).map(([k, v]) => (
+                            <span key={k} title={k} style={{
+                              width: 6, height: 14, borderRadius: 2,
+                              background: v > 0.8 ? COLORS.green : v > 0.5 ? '#e0c040' : COLORS.red,
+                              opacity: 0.7,
+                            }} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Session metadata */}
                     {full.session_meta && (
                       <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>

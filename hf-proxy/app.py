@@ -68,6 +68,7 @@ try:
     from sovereign_motion.features import extract_imu_features
     from sovereign_motion.phase_detect import PhaseDetector
     from sovereign_topo.encode import encode_motion
+    from sovereign_motion.quality import analyze_quality
     sovereign_lib_available = True
 except ImportError as e:
     import logging
@@ -613,6 +614,25 @@ async def analyze(swing_id: str):
     record = store.load(swing_id)
     store.update(swing_id, status="analyzed")
     return {"id": swing_id, "status": "analyzed", "steps": steps, "record": record.to_dict() if record else None}
+
+
+# ─── DATA QUALITY ────────────────────────────────────────────
+@app.get("/api/swing/{swing_id}/quality")
+async def check_quality(swing_id: str):
+    """Run data quality analysis on a captured session."""
+    if not sovereign_lib_available:
+        return JSONResponse({"error": "sovereign-lib not available"}, status_code=503)
+
+    csv_files = list(UPLOAD_DIR.glob(f"{swing_id}_*"))
+    if not csv_files:
+        return JSONResponse({"error": "CSV file not found"}, status_code=404)
+
+    try:
+        ts = IMUTimeSeries.from_csv(str(csv_files[0]))
+        quality = analyze_quality(ts)
+        return {"id": swing_id, **quality}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # ─── BATCH ───────────────────────────────────────────────────
