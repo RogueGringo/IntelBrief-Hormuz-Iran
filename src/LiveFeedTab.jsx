@@ -149,6 +149,8 @@ export default function SessionFeedTab() {
   const [backendError, setBackendError] = useState(null);
   const [backendOnline, setBackendOnline] = useState(null);
   const [classFilter, setClassFilter] = useState('ALL');
+  const [sortBy, setSortBy] = useState('newest'); // 'newest', 'oldest', 'name', 'status'
+  const [searchQuery, setSearchQuery] = useState('');
   const [expandedSwing, setExpandedSwing] = useState(null);
   const [expandedData, setExpandedData] = useState({});
   const [actionLoading, setActionLoading] = useState({});
@@ -236,13 +238,27 @@ export default function SessionFeedTab() {
   // Collect all unique tags
   const allTags = [...new Set(swings.flatMap(s => s.tags || []))];
 
-  // Filtered swings
+  // Filtered, searched, and sorted swings
   let filtered = classFilter === 'ALL'
     ? swings
     : swings.filter(s => s.classification === classFilter);
   if (tagFilter) {
     filtered = filtered.filter(s => (s.tags || []).includes(tagFilter));
   }
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    filtered = filtered.filter(s =>
+      (s.filename || '').toLowerCase().includes(q) ||
+      (s.id || '').toLowerCase().includes(q) ||
+      (s.notes || '').toLowerCase().includes(q) ||
+      (s.tags || []).some(t => t.toLowerCase().includes(q))
+    );
+  }
+  // Sort
+  filtered = [...filtered];
+  if (sortBy === 'oldest') filtered.reverse();
+  else if (sortBy === 'name') filtered.sort((a, b) => (a.filename || '').localeCompare(b.filename || ''));
+  else if (sortBy === 'status') filtered.sort((a, b) => (a.status || '').localeCompare(b.status || ''));
 
   return (
     <div style={{ padding: '32px', maxWidth: 1200 }}>
@@ -462,6 +478,43 @@ export default function SessionFeedTab() {
           REFRESH
         </button>
       </div>
+
+      {/* Search + Sort */}
+      {swings.length > 3 && (
+        <div style={{
+          display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center',
+        }}>
+          <input
+            type="text"
+            placeholder="Search sessions..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{
+              flex: 1, maxWidth: 300, padding: '6px 12px', fontSize: 11,
+              background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+              borderRadius: 6, color: COLORS.text, outline: 'none',
+            }}
+          />
+          <span style={{ fontSize: 9, color: COLORS.textMuted, letterSpacing: 1 }}>SORT</span>
+          {['newest', 'oldest', 'name', 'status'].map(s => (
+            <button key={s} onClick={() => setSortBy(s)} style={{
+              padding: '4px 10px', borderRadius: 4, fontSize: 9, fontWeight: 600,
+              cursor: 'pointer', border: '1px solid',
+              background: sortBy === s ? `${COLORS.gold}15` : 'transparent',
+              borderColor: sortBy === s ? COLORS.gold : COLORS.border,
+              color: sortBy === s ? COLORS.gold : COLORS.textMuted,
+              textTransform: 'uppercase', letterSpacing: 0.5,
+            }}>
+              {s}
+            </button>
+          ))}
+          {(searchQuery || tagFilter || classFilter !== 'ALL') && (
+            <span style={{ fontSize: 10, color: COLORS.textDim }}>
+              {filtered.length}/{swings.length} shown
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Loading state */}
       {loading && swings.length === 0 && (
