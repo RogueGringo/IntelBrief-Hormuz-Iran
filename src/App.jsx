@@ -340,6 +340,8 @@ function HardwareSensorPanel() {
   const [sensor, setSensor] = useState(null);
   const [error, setError] = useState(null);
   const [showStream, setShowStream] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+  const [configMsg, setConfigMsg] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -402,6 +404,17 @@ function HardwareSensorPanel() {
             {showStream ? 'STREAMING' : 'LIVE'}
           </button>
         )}
+        {connected && (
+          <button onClick={() => setShowConfig(!showConfig)} style={{
+            padding: '4px 12px', borderRadius: 4, fontSize: 9,
+            fontWeight: 700, letterSpacing: 1, cursor: 'pointer',
+            background: showConfig ? `${COLORS.gold}20` : 'transparent',
+            border: `1px solid ${showConfig ? COLORS.gold : COLORS.border}`,
+            color: showConfig ? COLORS.gold : COLORS.textMuted,
+          }}>
+            CONFIG
+          </button>
+        )}
       </div>
       {connected && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
@@ -413,7 +426,87 @@ function HardwareSensorPanel() {
           ))}
         </div>
       )}
+      {/* Config Panel */}
+      {connected && showConfig && (
+        <SensorConfigPanel
+          sensor={sensor}
+          onCommand={async (cmd) => {
+            setConfigMsg(null);
+            try {
+              const resp = await fetch('/api/sensor/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: cmd }),
+              });
+              const data = await resp.json();
+              setConfigMsg({ ok: !data.error, text: data.response || data.error });
+            } catch (e) {
+              setConfigMsg({ ok: false, text: e.message });
+            }
+          }}
+          message={configMsg}
+        />
+      )}
       <LiveStreamPanel visible={showStream} onClose={() => setShowStream(false)} />
+    </div>
+  );
+}
+
+function SensorConfigPanel({ sensor, onCommand, message }) {
+  const [threshold, setThreshold] = useState(sensor?.threshold || '1500');
+  const [duration, setDuration] = useState(sensor?.duration || '5');
+  const [cooldown, setCooldown] = useState(sensor?.cooldown || '2');
+
+  const inputStyle = {
+    width: 80, padding: '4px 8px', fontSize: 12, fontFamily: 'monospace',
+    background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+    borderRadius: 4, color: COLORS.text, textAlign: 'center',
+  };
+  const btnStyle = {
+    padding: '4px 10px', borderRadius: 4, fontSize: 9, fontWeight: 700,
+    cursor: 'pointer', background: `${COLORS.gold}15`,
+    border: `1px solid ${COLORS.gold}40`, color: COLORS.gold,
+  };
+  const rowStyle = {
+    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
+  };
+
+  return (
+    <div style={{
+      marginTop: 10, padding: 12, background: COLORS.bg, borderRadius: 6,
+      border: `1px solid ${COLORS.border}`,
+    }}>
+      <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>
+        SENSOR CONFIGURATION
+      </div>
+      <div style={rowStyle}>
+        <span style={{ fontSize: 11, color: COLORS.textDim, width: 80 }}>Threshold</span>
+        <input style={inputStyle} value={threshold} onChange={e => setThreshold(e.target.value)} />
+        <span style={{ fontSize: 10, color: COLORS.textMuted }}>mg</span>
+        <button style={btnStyle} onClick={() => onCommand(`SET THRESHOLD ${threshold}`)}>SET</button>
+      </div>
+      <div style={rowStyle}>
+        <span style={{ fontSize: 11, color: COLORS.textDim, width: 80 }}>Duration</span>
+        <input style={inputStyle} value={duration} onChange={e => setDuration(e.target.value)} />
+        <span style={{ fontSize: 10, color: COLORS.textMuted }}>sec</span>
+        <button style={btnStyle} onClick={() => onCommand(`SET DURATION ${duration}`)}>SET</button>
+      </div>
+      <div style={rowStyle}>
+        <span style={{ fontSize: 11, color: COLORS.textDim, width: 80 }}>Cooldown</span>
+        <input style={inputStyle} value={cooldown} onChange={e => setCooldown(e.target.value)} />
+        <span style={{ fontSize: 10, color: COLORS.textMuted }}>sec</span>
+        <button style={btnStyle} onClick={() => onCommand(`SET COOLDOWN ${cooldown}`)}>SET</button>
+      </div>
+      {message && (
+        <div style={{
+          marginTop: 6, fontSize: 10, padding: '4px 8px', borderRadius: 4,
+          background: message.ok ? `${COLORS.green}10` : `${COLORS.red}10`,
+          color: message.ok ? COLORS.green : COLORS.red,
+          fontFamily: 'monospace',
+        }}>
+          {message.text}
+        </div>
+      )}
     </div>
   );
 }
