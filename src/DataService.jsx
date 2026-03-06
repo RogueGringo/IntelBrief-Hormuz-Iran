@@ -201,6 +201,16 @@ export async function fetchAnomalies() {
   }
 }
 
+export async function fetchClassifierStatus() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/classifier/status`);
+    if (!resp.ok) return { total_labeled: 0, classes: {}, labels: [] };
+    return await resp.json();
+  } catch (e) {
+    return { total_labeled: 0, classes: {}, labels: [] };
+  }
+}
+
 export async function getHealth() {
   try {
     const resp = await fetch(`${API_BASE}/api/health`);

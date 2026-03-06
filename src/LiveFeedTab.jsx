@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchSwings, fetchSwing, ingestSwing, analyzeSwing, coachSwing, getHealth } from './DataService.jsx';
+import { fetchSwings, fetchSwing, ingestSwing, analyzeSwing, coachSwing, getHealth, fetchClassifierStatus } from './DataService.jsx';
 import { COLORS, CLASS_COLORS } from './theme.js';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceArea, ReferenceLine } from 'recharts';
 import { useToast } from './Toasts.jsx';
@@ -299,6 +299,13 @@ export default function SessionFeedTab() {
 
   const [tagFilter, setTagFilter] = useState(null);
   const [groupFilter, setGroupFilter] = useState(null);
+  const [knownLabels, setKnownLabels] = useState([]);
+
+  useEffect(() => {
+    fetchClassifierStatus().then(data => {
+      if (data.labels) setKnownLabels(data.labels);
+    });
+  }, [swings]);
 
   // Collect all unique tags and groups
   const allTags = [...new Set(swings.flatMap(s => s.tags || []))];
@@ -743,6 +750,17 @@ export default function SessionFeedTab() {
                     {(swing.tags || []).length > 3 && (
                       <span style={{ fontSize: 8, color: COLORS.textMuted }}>+{swing.tags.length - 3}</span>
                     )}
+                    {/* User label badge */}
+                    {swing.user_label && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
+                        padding: '2px 8px', borderRadius: 10,
+                        background: `${COLORS.gold}20`, color: COLORS.gold,
+                        border: `1px solid ${COLORS.gold}30`,
+                      }}>
+                        {swing.user_label}
+                      </span>
+                    )}
                     {/* Classification badge */}
                     <span style={{
                       fontSize: 10, fontWeight: 700, letterSpacing: 1,
@@ -1157,6 +1175,50 @@ ${report.coaching_notes ? `<h2>Coaching Notes</h2><p>${report.coaching_notes}</p
                         </div>
                       </div>
                     )}
+
+                    {/* User Label */}
+                    <div style={{ marginTop: 8, marginBottom: 8 }} onClick={e => e.stopPropagation()}>
+                      <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
+                        MOTION LABEL
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {swing.user_label && (
+                          <span style={{
+                            fontSize: 10, padding: '2px 8px', borderRadius: 4, fontWeight: 700,
+                            background: `${COLORS.gold}20`, color: COLORS.gold,
+                            border: `1px solid ${COLORS.gold}40`, letterSpacing: 0.5,
+                          }}>
+                            {swing.user_label}
+                          </span>
+                        )}
+                        <input
+                          list={`labels-${id}`}
+                          placeholder={swing.user_label ? 'Change label...' : 'Add label...'}
+                          defaultValue=""
+                          onKeyDown={async (e) => {
+                            if (e.key !== 'Enter') return;
+                            const val = e.target.value.trim();
+                            if (!val) return;
+                            await fetch(`/api/swing/${id}/label`, {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ label: val }),
+                            });
+                            e.target.value = '';
+                            addToast(`Labeled: ${val}`, 'success');
+                            loadSwings();
+                          }}
+                          style={{
+                            background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 4, color: COLORS.textDim, padding: '3px 8px',
+                            fontSize: 10, width: 120, outline: 'none',
+                          }}
+                        />
+                        <datalist id={`labels-${id}`}>
+                          {knownLabels.map(l => <option key={l} value={l} />)}
+                        </datalist>
+                      </div>
+                    </div>
 
                     {/* Group */}
                     <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
