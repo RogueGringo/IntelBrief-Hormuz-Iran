@@ -171,6 +171,21 @@ export async function triggerAgentLoop(maxCycles = 3) {
   return await resp.json();
 }
 
+export async function fetchTrends() {
+  const cached = getCached('trends', 15000);
+  if (cached) return cached;
+  try {
+    const resp = await fetch(`${API_BASE}/api/trends`);
+    if (!resp.ok) return { sessions: [], count: 0 };
+    const data = await resp.json();
+    setCache('trends', data);
+    return data;
+  } catch (e) {
+    console.error('fetchTrends failed:', e);
+    return { sessions: [], count: 0 };
+  }
+}
+
 export async function getHealth() {
   try {
     const resp = await fetch(`${API_BASE}/api/health`);

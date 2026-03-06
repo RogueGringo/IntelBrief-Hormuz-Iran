@@ -3,6 +3,7 @@ import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fet
 import { COLORS, CATEGORY_COLORS, CLASS_COLORS } from "./theme.js";
 import MotionPatternsTab from './PatternsTab.jsx';
 import SessionFeedTab from './LiveFeedTab.jsx';
+import ProgressTab from './ProgressTab.jsx';
 import ErrorBoundary from './ErrorBoundary.jsx';
 
 // ─── HEADER ────────────────────────────────────────────────
@@ -12,6 +13,7 @@ const TABS = [
   { id: 'motionPatterns', label: 'MOTION PATTERNS' },
   { id: 'modelRegistry', label: 'MODEL REGISTRY' },
   { id: 'topoChains', label: 'TOPOLOGY CHAINS' },
+  { id: 'progress', label: 'PROGRESS' },
   { id: 'monitor', label: 'SIGNAL MONITOR' },
   { id: 'feed', label: 'SESSION FEED' },
 ];
@@ -1651,7 +1653,7 @@ function StatusBar() {
         SOVEREIGN MOTION v1.0
       </span>
       <span style={{ color: COLORS.textMuted }}>
-        [1-7] switch tabs
+        [1-8] switch tabs
       </span>
     </div>
   );
@@ -1666,7 +1668,7 @@ export default function App() {
     const handler = (e) => {
       // Don't capture if user is typing in an input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-      const tabMap = { '1': 'thesis', '2': 'sensors', '3': 'motionPatterns', '4': 'modelRegistry', '5': 'topoChains', '6': 'monitor', '7': 'feed' };
+      const tabMap = { '1': 'thesis', '2': 'sensors', '3': 'motionPatterns', '4': 'modelRegistry', '5': 'topoChains', '6': 'progress', '7': 'monitor', '8': 'feed' };
       if (tabMap[e.key]) {
         e.preventDefault();
         setActiveTab(tabMap[e.key]);
@@ -1686,6 +1688,7 @@ export default function App() {
           {activeTab === 'motionPatterns' && <MotionPatternsTab />}
           {activeTab === 'modelRegistry' && <ModelRegistryTab />}
           {activeTab === 'topoChains' && <TopologyChainsTab />}
+          {activeTab === 'progress' && <ProgressTab />}
           {activeTab === 'monitor' && <SignalMonitorTab />}
           {activeTab === 'feed' && <SessionFeedTab />}
         </ErrorBoundary>

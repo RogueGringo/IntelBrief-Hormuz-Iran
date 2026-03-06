@@ -740,6 +740,41 @@ async def get_stats():
     }
 
 
+@app.get("/api/trends")
+async def get_trends():
+    """Per-session metrics in chronological order for trend charting."""
+    all_swings = store.list_all()
+    points = []
+    for summary in all_swings:
+        record = store.load(summary["id"])
+        if not record or record.status != "analyzed":
+            continue
+        feat = record.features or {}
+        topo = record.topology or {}
+        pers = topo.get("persistence", {})
+        phases = topo.get("phases", {})
+        quality = feat.get("data_quality_score", feat.get("quality_score"))
+        emb = topo.get("embedding", [])
+        points.append({
+            "id": record.id,
+            "filename": record.filename,
+            "classification": record.classification,
+            "confidence": record.classification_confidence,
+            "quality_score": quality,
+            "peak_accel": feat.get("peak_accel_magnitude"),
+            "duration_s": feat.get("duration_s"),
+            "sample_rate": feat.get("sample_rate_hz"),
+            "feature_count": len(feat),
+            "betti_0": pers.get("betti_0", topo.get("betti_0")),
+            "betti_1": pers.get("betti_1", topo.get("betti_1")),
+            "total_persistence": topo.get("total_persistence"),
+            "n_phases": len(phases.get("phases", [])),
+            "embedding_norm": sum(x ** 2 for x in emb) ** 0.5 if emb else None,
+            "tags": record.tags,
+        })
+    return {"sessions": points, "count": len(points)}
+
+
 @app.get("/api/export/csv")
 async def export_csv():
     """Export all sessions as a flat CSV for data analysis."""
