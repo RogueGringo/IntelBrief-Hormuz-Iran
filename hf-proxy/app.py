@@ -644,6 +644,79 @@ async def get_swing(swing_id: str):
     return record.to_dict()
 
 
+@app.get("/api/swing/{swing_id}/report")
+async def get_swing_report(swing_id: str):
+    """Generate a comprehensive analysis report for a session."""
+    record = store.load(swing_id)
+    if not record:
+        return JSONResponse({"error": "Swing not found"}, status_code=404)
+
+    report = {
+        "id": swing_id,
+        "filename": record.filename,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "session_meta": record.session_meta,
+        "status": record.status,
+    }
+
+    # Feature summary
+    if record.features:
+        feat = record.features
+        report["feature_summary"] = {
+            "total_features": len(feat),
+            "duration_s": feat.get("duration_s"),
+            "sample_rate_hz": feat.get("sample_rate_hz"),
+            "n_samples": feat.get("n_samples"),
+            "peak_acceleration_mg": feat.get("accel_mag_max"),
+            "peak_angular_velocity_mdps": feat.get("gyro_mag_max"),
+            "motion_smoothness": feat.get("smoothness"),
+            "jerk_ratio": feat.get("jerk_ratio"),
+            "accel_entropy": feat.get("accel_entropy"),
+            "cross_axis_correlations": {
+                "ax_ay": feat.get("corr_ax_ay"),
+                "ax_az": feat.get("corr_ax_az"),
+                "ay_az": feat.get("corr_ay_az"),
+            },
+        }
+        report["all_features"] = feat
+
+    # Topology summary
+    if record.topology:
+        topo = record.topology
+        report["topology_summary"] = {
+            "betti_0": topo.get("betti_0"),
+            "betti_1": topo.get("betti_1"),
+            "total_persistence": topo.get("total_persistence"),
+            "max_persistence": topo.get("max_persistence"),
+            "persistence_entropy": topo.get("persistence_entropy"),
+            "embedding_dimension": len(topo.get("embedding", [])),
+            "point_cloud": topo.get("point_cloud_stats"),
+        }
+        if topo.get("phases"):
+            phases = topo["phases"]
+            report["phase_analysis"] = {
+                "n_phases": phases.get("summary", {}).get("n_phases"),
+                "active_duration_s": phases.get("summary", {}).get("active_duration_s"),
+                "peak_gyro_mdps": phases.get("summary", {}).get("peak_gyro_mdps"),
+                "peak_accel_mg": phases.get("summary", {}).get("peak_accel_mg"),
+                "phase_durations": phases.get("summary", {}).get("phase_durations"),
+                "phases": [{"start": s, "end": e, "name": n} for s, e, n in phases.get("phases", [])],
+                "events": [{"index": i, "type": t} for i, t in phases.get("events", [])],
+            }
+
+    # Classification
+    if record.classification:
+        report["classification"] = {
+            "class": record.classification,
+            "confidence": record.classification_confidence,
+        }
+
+    if record.coaching_notes:
+        report["coaching_notes"] = record.coaching_notes
+
+    return report
+
+
 @app.get("/api/swing/{swing_id}/data")
 async def get_swing_data(swing_id: str, downsample: int = 1):
     """Return parsed CSV time-series as JSON for charting."""
@@ -727,6 +800,42 @@ async def list_baselines():
         except Exception:
             pass
     return baselines
+
+
+@app.post("/api/baselines/{swing_id}")
+async def save_baseline(swing_id: str, request: Request):
+    """Save a session as a named baseline for comparison."""
+    record = store.load(swing_id)
+    if not record:
+        return JSONResponse({"error": "Swing not found"}, status_code=404)
+
+    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    label = body.get("label", f"Baseline {swing_id}")
+
+    baseline = {
+        "id": swing_id,
+        "label": label,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "features": record.features,
+        "topology": record.topology,
+        "classification": record.classification,
+        "session_meta": record.session_meta,
+    }
+
+    baseline_path = BASELINE_DIR / f"{swing_id}.json"
+    baseline_path.write_text(json.dumps(baseline, indent=2))
+
+    return {"status": "saved", "id": swing_id, "label": label}
+
+
+@app.delete("/api/baselines/{swing_id}")
+async def delete_baseline(swing_id: str):
+    """Delete a baseline."""
+    baseline_path = BASELINE_DIR / f"{swing_id}.json"
+    if not baseline_path.exists():
+        return JSONResponse({"error": "Baseline not found"}, status_code=404)
+    baseline_path.unlink()
+    return {"status": "deleted", "id": swing_id}
 
 
 # ─── SIGNALS ─────────────────────────────────────────────────

@@ -518,6 +518,44 @@ export default function SessionFeedTab() {
                   >
                     {isCoaching ? 'Coaching...' : 'Coach'}
                   </button>
+                  <button
+                    onClick={async () => {
+                      const resp = await fetch(`/api/swing/${id}/report`);
+                      const data = await resp.json();
+                      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `report_${id}.json`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    style={{
+                      padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+                      cursor: 'pointer', background: `${COLORS.blue}15`,
+                      border: `1px solid ${COLORS.blue}40`, color: COLORS.blue,
+                    }}
+                  >
+                    Export
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const label = prompt('Baseline label:', `Baseline ${id}`);
+                      if (!label) return;
+                      await fetch(`/api/baselines/${id}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ label }),
+                      });
+                    }}
+                    style={{
+                      padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+                      cursor: 'pointer', background: `${COLORS.purple}15`,
+                      border: `1px solid ${COLORS.purple}40`, color: COLORS.purple,
+                    }}
+                  >
+                    Save Baseline
+                  </button>
                 </div>
 
                 {/* Expandable detail */}
