@@ -635,6 +635,14 @@ async def analyze(swing_id: str):
 
     record = store.load(swing_id)
     store.update(swing_id, status="analyzed")
+
+    # Fire webhook if configured
+    asyncio.create_task(_fire_webhook("session.analyzed", {
+        "id": swing_id,
+        "classification": record.classification if record else None,
+        "confidence": record.classification_confidence if record else 0,
+    }))
+
     return {"id": swing_id, "status": "analyzed", "steps": steps, "record": record.to_dict() if record else None}
 
 
@@ -740,6 +748,78 @@ async def get_stats():
         "classifications": classifications,
         "baselines": len(list(BASELINE_DIR.glob("*.json"))),
     }
+
+
+WEBHOOKS_FILE = DATA_DIR / "webhooks.json"
+
+
+def _load_webhooks() -> list[dict]:
+    if WEBHOOKS_FILE.exists():
+        try:
+            return json.loads(WEBHOOKS_FILE.read_text())
+        except Exception:
+            pass
+    return []
+
+
+def _save_webhooks(hooks: list[dict]) -> None:
+    WEBHOOKS_FILE.write_text(json.dumps(hooks, indent=2))
+
+
+async def _fire_webhook(event: str, payload: dict) -> None:
+    """Fire all registered webhooks for an event type."""
+    import aiohttp
+    hooks = _load_webhooks()
+    active = [h for h in hooks if h.get("active", True) and event in h.get("events", [])]
+    if not active:
+        return
+    body = json.dumps({"event": event, "data": payload, "timestamp": datetime.now(timezone.utc).isoformat()})
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+            for hook in active:
+                try:
+                    await session.post(hook["url"], data=body, headers={"Content-Type": "application/json"})
+                except Exception:
+                    pass  # best-effort
+    except ImportError:
+        # aiohttp not installed — try requests as fallback
+        import requests as req
+        for hook in active:
+            try:
+                req.post(hook["url"], json={"event": event, "data": payload}, timeout=5)
+            except Exception:
+                pass
+
+
+@app.get("/api/webhooks")
+async def list_webhooks():
+    return _load_webhooks()
+
+
+@app.post("/api/webhooks")
+async def add_webhook(request: Request):
+    body = await request.json()
+    url = body.get("url")
+    if not url:
+        return JSONResponse({"error": "url is required"}, status_code=400)
+    hooks = _load_webhooks()
+    hook = {
+        "id": str(len(hooks) + 1),
+        "url": url,
+        "events": body.get("events", ["session.analyzed"]),
+        "active": True,
+    }
+    hooks.append(hook)
+    _save_webhooks(hooks)
+    return {"status": "created", "webhook": hook}
+
+
+@app.delete("/api/webhooks/{hook_id}")
+async def delete_webhook(hook_id: str):
+    hooks = _load_webhooks()
+    hooks = [h for h in hooks if h.get("id") != hook_id]
+    _save_webhooks(hooks)
+    return {"status": "deleted", "id": hook_id}
 
 
 DEFAULT_SETTINGS = {

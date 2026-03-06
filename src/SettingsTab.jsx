@@ -71,14 +71,18 @@ export default function SettingsTab() {
   const [saved, setSaved] = useState(false);
   const { addToast } = useToast();
   const [health, setHealth] = useState(null);
+  const [webhooks, setWebhooks] = useState([]);
+  const [newWebhookUrl, setNewWebhookUrl] = useState("");
 
   useEffect(() => {
     Promise.all([
       fetch("/api/settings").then(r => r.json()).catch(() => null),
       fetch("/api/health").then(r => r.json()).catch(() => null),
-    ]).then(([s, h]) => {
+      fetch("/api/webhooks").then(r => r.json()).catch(() => []),
+    ]).then(([s, h, wh]) => {
       setSettings(s);
       setHealth(h);
+      setWebhooks(Array.isArray(wh) ? wh : []);
       setLoading(false);
     });
   }, []);
@@ -237,6 +241,68 @@ export default function SettingsTab() {
         <SettingRow label="Include Topology" description="Export Betti numbers and persistence in CSV">
           <Toggle value={exp.include_topology ?? true} onChange={v => update("export", "include_topology", v)} />
         </SettingRow>
+      </div>
+
+      {/* Webhooks */}
+      <div style={{ ...CARD, borderLeft: `3px solid ${COLORS.green}` }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: COLORS.green, marginBottom: 10 }}>
+          WEBHOOKS
+        </div>
+        <p style={{ fontSize: 11, color: COLORS.textDim, marginBottom: 10 }}>
+          Receive HTTP POST notifications when sessions are analyzed.
+        </p>
+        {webhooks.map(wh => (
+          <div key={wh.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${COLORS.border}22` }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: wh.active ? COLORS.green : COLORS.textMuted }} />
+            <span style={{ fontSize: 11, color: COLORS.text, fontFamily: "monospace", flex: 1 }}>{wh.url}</span>
+            <span style={{ fontSize: 9, color: COLORS.textDim }}>{(wh.events || []).join(", ")}</span>
+            <button
+              onClick={async () => {
+                await fetch(`/api/webhooks/${wh.id}`, { method: "DELETE" });
+                setWebhooks(prev => prev.filter(h => h.id !== wh.id));
+                addToast("Webhook removed", "info");
+              }}
+              style={{
+                padding: "3px 8px", borderRadius: 3, fontSize: 9, cursor: "pointer",
+                background: "transparent", border: `1px solid ${COLORS.red}30`, color: COLORS.red,
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <input
+            type="text"
+            placeholder="https://example.com/webhook"
+            value={newWebhookUrl}
+            onChange={e => setNewWebhookUrl(e.target.value)}
+            style={{ ...INPUT, flex: 1, width: "auto" }}
+          />
+          <button
+            onClick={async () => {
+              if (!newWebhookUrl.startsWith("http")) return;
+              const resp = await fetch("/api/webhooks", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url: newWebhookUrl }),
+              });
+              const data = await resp.json();
+              if (data.webhook) {
+                setWebhooks(prev => [...prev, data.webhook]);
+                setNewWebhookUrl("");
+                addToast("Webhook added", "success");
+              }
+            }}
+            style={{
+              padding: "6px 14px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+              cursor: "pointer", background: `${COLORS.green}15`,
+              border: `1px solid ${COLORS.green}40`, color: COLORS.green,
+            }}
+          >
+            Add
+          </button>
+        </div>
       </div>
 
       {/* Danger Zone */}
