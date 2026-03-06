@@ -12,6 +12,7 @@ a dual-model LLM manager for real-time coaching and batch distillation.
 """
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -26,12 +27,24 @@ from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from llm_manager import LLMManager
 from swing_store import SwingRecord, SwingStore
 
+# ─── LOGGING ─────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(name)s %(message)s',
+)
+logger = logging.getLogger("sovereign")
+
 # ─── APP SETUP ────────────────────────────────────────────────
 _start_time = time.time()
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 app = FastAPI(
     title="Sovereign Motion API",
@@ -41,9 +54,13 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+_cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -70,7 +87,7 @@ if API_KEY:
 # ─── PATHS ────────────────────────────────────────────────────
 STATIC_DIR = Path(__file__).parent / "static"
 SOVEREIGN_LIB = Path(os.environ.get("SOVEREIGN_LIB_PATH", Path(__file__).parent.parent / "sovereign-lib"))
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(os.environ.get("SOVEREIGN_DATA_DIR", Path(__file__).parent / "data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
 BASELINE_DIR = DATA_DIR / "baselines"
 
@@ -490,7 +507,14 @@ async def sensor_stream():
 
 # ─── INGEST ──────────────────────────────────────────────────
 @app.post("/api/ingest")
-async def ingest(file: UploadFile = File(...), ground_truth: str = Form("{}"), auto_analyze: bool = Form(True)):
+@limiter.limit("10/minute")
+async def ingest(request: Request, file: UploadFile = File(...), ground_truth: str = Form("{}"), auto_analyze: bool = Form(True)):
+    # Limit upload size to 50MB
+    contents = await file.read()
+    if len(contents) > 50 * 1024 * 1024:
+        return JSONResponse({"error": "File too large (max 50MB)"}, status_code=413)
+    await file.seek(0)
+
     swing_id = store.create_id()
     save_path = UPLOAD_DIR / f"{swing_id}_{file.filename}"
     content = await file.read()
@@ -604,7 +628,7 @@ async def ingest(file: UploadFile = File(...), ground_truth: str = Form("{}"), a
     # Auto-analyze if sovereign-lib is available
     if auto_analyze and sovereign_lib_available:
         try:
-            analysis = await analyze(swing_id)
+            analysis = await _analyze_swing(swing_id)
             result["status"] = "analyzed"
             result["analysis"] = analysis
         except Exception as e:
@@ -686,8 +710,8 @@ async def classify(swing_id: str):
 
 
 # ─── FULL PIPELINE ───────────────────────────────────────────
-@app.post("/api/analyze/{swing_id}")
-async def analyze(swing_id: str):
+async def _analyze_swing(swing_id: str):
+    """Core analysis logic (called by endpoint and internal callers)."""
     record = store.load(swing_id)
     if not record:
         return JSONResponse({"error": "Swing not found"}, status_code=404)
@@ -725,7 +749,14 @@ async def analyze(swing_id: str):
         "confidence": record.classification_confidence if record else 0,
     }))
 
+    logger.info("analyze swing_id=%s steps=%d", swing_id, len(steps))
     return {"id": swing_id, "status": "analyzed", "steps": steps, "record": record.to_dict() if record else None}
+
+
+@app.post("/api/analyze/{swing_id}")
+@limiter.limit("10/minute")
+async def analyze(request: Request, swing_id: str):
+    return await _analyze_swing(swing_id)
 
 
 # ─── DATA QUALITY ────────────────────────────────────────────
@@ -755,7 +786,7 @@ async def batch():
     for swing in all_swings:
         if swing["status"] in ("ingested", "features_extracted", "encoded"):
             try:
-                result = await analyze(swing["id"])
+                result = await _analyze_swing(swing["id"])
                 results.append(result)
             except Exception as e:
                 results.append({"id": swing["id"], "error": str(e)})
@@ -866,10 +897,12 @@ async def classifier_status():
 
 
 @app.post("/api/classifier/train")
-async def train_classifier():
+@limiter.limit("10/minute")
+async def train_classifier(request: Request):
     if not motion_classifier.can_train_mlp():
         return JSONResponse({"error": "Need at least 2 classes and 10+ examples in one class"}, status_code=400)
     result = motion_classifier.train_mlp()
+    logger.info("classifier train result=%s", result)
     return result
 
 
@@ -1669,8 +1702,8 @@ def _rule_based_coaching(record: SwingRecord) -> str:
     return " ".join(notes)
 
 
-@app.post("/api/coach/{swing_id}")
-async def coach(swing_id: str):
+async def _coach_swing(swing_id: str):
+    """Core coaching logic (called by endpoint and internal callers)."""
     record = store.load(swing_id)
     if not record:
         return JSONResponse({"error": "Swing not found"}, status_code=404)
@@ -1700,6 +1733,12 @@ Provide specific, actionable coaching advice based on the motion data:"""
 
     store.update(swing_id, coaching_notes=notes, status="coached")
     return {"id": swing_id, "coaching_notes": notes, "status": "coached"}
+
+
+@app.post("/api/coach/{swing_id}")
+@limiter.limit("10/minute")
+async def coach(request: Request, swing_id: str):
+    return await _coach_swing(swing_id)
 
 
 # ─── AGENT ENDPOINTS ─────────────────────────────────────────
@@ -1736,16 +1775,17 @@ async def agent_dashboard():
 
 
 @app.post("/api/agent/loop")
-async def agent_loop():
+@limiter.limit("10/minute")
+async def agent_loop(request: Request):
     plan = await agent_plan()
     results = []
     for action in plan["plan"]:
         for target_id in action["targets"]:
             try:
                 if action["action"] == "analyze":
-                    r = await analyze(target_id)
+                    r = await _analyze_swing(target_id)
                 elif action["action"] == "coach":
-                    r = await coach(target_id)
+                    r = await _coach_swing(target_id)
                 else:
                     r = {"skipped": True}
                 results.append({"id": target_id, "action": action["action"], "result": r})
@@ -1756,7 +1796,8 @@ async def agent_loop():
 
 # ─── DISTILL ─────────────────────────────────────────────────
 @app.post("/api/distill")
-async def distill():
+@limiter.limit("10/minute")
+async def distill(request: Request):
     all_swings = store.list_all()
     coached = [s for s in all_swings if s["status"] == "coached"]
     if not coached:

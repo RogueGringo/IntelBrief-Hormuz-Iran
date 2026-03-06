@@ -1803,13 +1803,28 @@ function StatusBar() {
       display: 'flex', alignItems: 'center', padding: '0 16px', gap: 16,
       fontSize: 9, color: COLORS.textMuted, zIndex: 100,
     }}>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      <span style={{
+        display: 'flex', alignItems: 'center', gap: 4,
+        ...(health ? {} : {
+          background: `${COLORS.red}20`,
+          padding: '2px 8px',
+          borderRadius: 3,
+          border: `1px solid ${COLORS.red}40`,
+        }),
+      }}>
         <span style={{
           width: 6, height: 6, borderRadius: '50%',
           background: health ? COLORS.green : COLORS.red,
-          boxShadow: health ? `0 0 4px ${COLORS.green}60` : `0 0 4px ${COLORS.red}60`,
+          boxShadow: health ? `0 0 4px ${COLORS.green}60` : `0 0 6px ${COLORS.red}80`,
+          ...(health ? {} : { animation: 'pulse 1.5s infinite' }),
         }} />
-        {health ? 'Connected' : 'Offline'}
+        <span style={{
+          color: health ? COLORS.textMuted : COLORS.red,
+          fontWeight: health ? 400 : 700,
+          letterSpacing: health ? 0 : 1,
+        }}>
+          {health ? 'Connected' : 'OFFLINE'}
+        </span>
       </span>
       {latency != null && (
         <span style={{ color: latency < 200 ? COLORS.green : latency < 500 ? '#e0c040' : COLORS.red }}>

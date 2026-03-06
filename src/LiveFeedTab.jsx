@@ -231,14 +231,20 @@ export default function SessionFeedTab() {
   const handleFiles = useCallback(async (files) => {
     const total = files.length;
     setUploadProgress({ done: 0, total });
-    for (let i = 0; i < files.length; i++) {
-      await ingestSwing(files[i]);
-      if (mountedRef.current) setUploadProgress({ done: i + 1, total });
+    try {
+      for (let i = 0; i < files.length; i++) {
+        await ingestSwing(files[i]);
+        if (mountedRef.current) setUploadProgress({ done: i + 1, total });
+      }
+      addToast(`Uploaded ${total} session${total > 1 ? 's' : ''}`, 'success');
+      const updated = await fetchSwings();
+      if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
+    } catch (e) {
+      addToast('Upload failed: ' + e.message, 'error');
+      console.error('Upload failed:', e);
+    } finally {
+      if (mountedRef.current) setUploadProgress(null);
     }
-    setUploadProgress(null);
-    addToast(`Uploaded ${total} session${total > 1 ? 's' : ''}`, 'success');
-    const updated = await fetchSwings();
-    if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
   }, [addToast]);
 
   const handleBatchAnalyze = useCallback(async () => {
@@ -283,13 +289,15 @@ export default function SessionFeedTab() {
     setActionLoading(prev => ({ ...prev, [id]: 'coaching' }));
     try {
       await coachSwing(id);
+      addToast(`Coaching complete: ${id.slice(0, 8)}`, 'success');
       const updated = await fetchSwings();
       if (mountedRef.current) setSwings(Array.isArray(updated) ? updated : []);
     } catch (e) {
+      addToast(`Coaching failed: ${e.message}`, 'error');
       console.error('Coach failed:', e);
     }
     if (mountedRef.current) setActionLoading(prev => ({ ...prev, [id]: null }));
-  }, []);
+  }, [addToast]);
 
   // Stats
   const classifiedSwings = swings.filter(s => s.classification != null);
