@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentPlan, fetchAgentDashboard, ingestSwing, analyzeSwing, coachSwing, compareSwings, swapModel, triggerDistill, triggerAgentLoop, classifyText } from './DataService.jsx';
 import { COLORS, CATEGORY_COLORS, CLASS_COLORS } from "./theme.js";
+import MotionPatternsTab from './PatternsTab.jsx';
 
 // ─── HEADER ────────────────────────────────────────────────
 const TABS = [
@@ -221,13 +222,6 @@ function SensorNodesTab() {
       )}
     </div>
   );
-}
-
-function MotionPatternsTab() {
-  return <div style={{ padding: 20, color: COLORS.text }}>
-    <h2 style={{ color: COLORS.gold }}>MOTION PATTERNS</h2>
-    <p style={{ color: COLORS.textDim }}>Historical swing signature analysis — implementation pending.</p>
-  </div>;
 }
 
 function ModelRegistryTab() {
