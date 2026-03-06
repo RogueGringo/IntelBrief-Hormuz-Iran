@@ -756,7 +756,7 @@ async def export_csv():
         topo = r.topology or {}
         phases = topo.get("phases", {})
         row = [
-            r.swing_id,
+            r.id,
             r.filename,
             r.status,
             r.classification,
