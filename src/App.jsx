@@ -1723,24 +1723,67 @@ function StatusBar() {
 // ─── MAIN APP ──────────────────────────────────────────────
 export default function App() {
   const [activeTab, setActiveTab] = useState('thesis');
+  const [showHelp, setShowHelp] = useState(false);
 
-  // Keyboard shortcuts: 1-7 to switch tabs
+  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e) => {
-      // Don't capture if user is typing in an input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
       const tabMap = { '1': 'thesis', '2': 'sensors', '3': 'motionPatterns', '4': 'modelRegistry', '5': 'topoChains', '6': 'progress', '7': 'monitor', '8': 'feed', '9': 'settings' };
       if (tabMap[e.key]) {
         e.preventDefault();
         setActiveTab(tabMap[e.key]);
+      } else if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+        e.preventDefault();
+        setShowHelp(prev => !prev);
+      } else if (e.key === 'Escape') {
+        setShowHelp(false);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  const SHORTCUTS = [
+    { keys: '1-9', desc: 'Switch between tabs' },
+    { keys: '?', desc: 'Toggle this help overlay' },
+    { keys: 'Esc', desc: 'Close overlays' },
+  ];
+
   return (
     <div style={{ minHeight: '100vh', background: COLORS.bg, color: COLORS.text, paddingBottom: 24 }}>
+      {showHelp && (
+        <div
+          onClick={() => setShowHelp(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9000,
+            background: 'rgba(0,0,0,0.7)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div onClick={e => e.stopPropagation()} style={{
+            background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+            borderRadius: 12, padding: 24, maxWidth: 400, width: '90%',
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.gold, letterSpacing: 1, marginBottom: 16 }}>
+              KEYBOARD SHORTCUTS
+            </div>
+            {SHORTCUTS.map(s => (
+              <div key={s.keys} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${COLORS.border}22` }}>
+                <kbd style={{
+                  background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                  borderRadius: 4, padding: '2px 8px', fontSize: 12,
+                  fontFamily: 'monospace', color: COLORS.gold,
+                }}>{s.keys}</kbd>
+                <span style={{ fontSize: 12, color: COLORS.textDim }}>{s.desc}</span>
+              </div>
+            ))}
+            <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 16, textAlign: 'center' }}>
+              Press <kbd style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 3, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace' }}>?</kbd> or <kbd style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 3, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace' }}>Esc</kbd> to close
+            </div>
+          </div>
+        </div>
+      )}
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px 40px' }}>
         <ErrorBoundary key={activeTab}>
