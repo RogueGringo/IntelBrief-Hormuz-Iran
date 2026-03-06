@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentDashboard, compareSwings, swapModel, triggerDistill, triggerAgentLoop, fetchAnomalies, fetchClassifierStatus } from './DataService.jsx';
+import { fetchSignals, fetchSwings, fetchSwing, fetchLLMStatus, fetchModels, fetchBaselines, fetchAgentDashboard, compareSwings, swapModel, triggerDistill, triggerAgentLoop, fetchAnomalies, fetchClassifierStatus, fetchEmbeddingMap } from './DataService.jsx';
 import { COLORS, CATEGORY_COLORS, CLASS_COLORS } from "./theme.js";
 import MotionPatternsTab from './PatternsTab.jsx';
 import SessionFeedTab from './LiveFeedTab.jsx';
@@ -1215,6 +1215,143 @@ function ModelRegistryTab() {
   );
 }
 
+function EmbeddingScatter({ onSelectSwing, highlightId }) {
+  const [mapData, setMapData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [hoveredPt, setHoveredPt] = useState(null);
+  const [colorBy, setColorBy] = useState('classification'); // 'classification', 'label', 'quality'
+
+  useEffect(() => {
+    fetchEmbeddingMap().then(data => {
+      setMapData(data);
+      setLoading(false);
+    });
+  }, []);
+
+  if (loading) return <div style={{ color: COLORS.textDim, fontSize: 11, padding: 12 }}>Loading embedding map...</div>;
+  if (!mapData || mapData.count < 2) {
+    return (
+      <div style={{ color: COLORS.textMuted, fontSize: 11, padding: 12 }}>
+        Need at least 2 analyzed sessions with topology to show embedding map.
+      </div>
+    );
+  }
+
+  const { points, variance_explained } = mapData;
+  const W = 520, H = 360, PAD = 40;
+  const xs = points.map(p => p.x);
+  const ys = points.map(p => p.y);
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const yMin = Math.min(...ys), yMax = Math.max(...ys);
+  const xRange = xMax - xMin || 1;
+  const yRange = yMax - yMin || 1;
+  const scale = Math.max(xRange, yRange);
+  const toSvg = (x, y) => [
+    PAD + ((x - xMin) / scale) * (W - 2 * PAD),
+    H - PAD - ((y - yMin) / scale) * (H - 2 * PAD),
+  ];
+
+  const getColor = (pt) => {
+    if (colorBy === 'label') {
+      if (!pt.user_label) return COLORS.textMuted + '60';
+      return CLASS_COLORS[(pt.user_label || '').toUpperCase()] || COLORS.gold;
+    }
+    if (colorBy === 'quality') {
+      const q = pt.quality_score || 0;
+      if (q > 0.7) return COLORS.green;
+      if (q > 0.4) return '#e0c040';
+      return COLORS.red;
+    }
+    // classification
+    const cls = (pt.classification || '').toUpperCase();
+    return CLASS_COLORS[cls] || COLORS.textMuted;
+  };
+
+  const tabBtn = (value, label) => ({
+    padding: '3px 8px', fontSize: 9, fontWeight: 600, letterSpacing: 0.5,
+    border: `1px solid ${colorBy === value ? COLORS.gold : COLORS.border}`,
+    borderRadius: 3, cursor: 'pointer',
+    background: colorBy === value ? `${COLORS.gold}20` : 'transparent',
+    color: colorBy === value ? COLORS.gold : COLORS.textDim,
+  });
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+        <span style={{ fontSize: 9, color: COLORS.textDim, letterSpacing: 1 }}>COLOR BY:</span>
+        <button onClick={() => setColorBy('classification')} style={tabBtn('classification')}>CLASS</button>
+        <button onClick={() => setColorBy('label')} style={tabBtn('label')}>LABEL</button>
+        <button onClick={() => setColorBy('quality')} style={tabBtn('quality')}>QUALITY</button>
+        <span style={{ marginLeft: 'auto', fontSize: 9, color: COLORS.textMuted }}>
+          {points.length} sessions &middot; PCA {variance_explained.map(v => `${(v * 100).toFixed(0)}%`).join(' + ')} variance
+        </span>
+      </div>
+      <svg
+        width={W} height={H}
+        style={{ background: COLORS.bg, borderRadius: 6, border: `1px solid ${COLORS.border}`, display: 'block' }}
+      >
+        {/* Grid */}
+        {[0.25, 0.5, 0.75].map(f => (
+          <line key={`gx${f}`} x1={PAD + f * (W - 2 * PAD)} y1={PAD} x2={PAD + f * (W - 2 * PAD)} y2={H - PAD} stroke={COLORS.border} strokeWidth={0.3} />
+        ))}
+        {[0.25, 0.5, 0.75].map(f => (
+          <line key={`gy${f}`} x1={PAD} y1={PAD + f * (H - 2 * PAD)} x2={W - PAD} y2={PAD + f * (H - 2 * PAD)} stroke={COLORS.border} strokeWidth={0.3} />
+        ))}
+        {/* Axes */}
+        <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke={COLORS.border} strokeWidth={1} />
+        <line x1={PAD} y1={PAD} x2={PAD} y2={H - PAD} stroke={COLORS.border} strokeWidth={1} />
+        <text x={W / 2} y={H - 8} textAnchor="middle" fill={COLORS.textMuted} fontSize={9}>PC1</text>
+        <text x={10} y={H / 2} textAnchor="middle" fill={COLORS.textMuted} fontSize={9} transform={`rotate(-90,10,${H / 2})`}>PC2</text>
+        {/* Points */}
+        {points.map((pt, i) => {
+          const [cx, cy] = toSvg(pt.x, pt.y);
+          const isHovered = hoveredPt === i;
+          const isHighlight = highlightId && pt.id === highlightId;
+          const r = isHighlight ? 7 : isHovered ? 6 : 4;
+          return (
+            <circle
+              key={pt.id}
+              cx={cx} cy={cy} r={r}
+              fill={getColor(pt)}
+              stroke={isHighlight ? COLORS.gold : isHovered ? '#fff' : 'none'}
+              strokeWidth={isHighlight ? 2 : 1.5}
+              opacity={colorBy === 'label' && !pt.user_label ? 0.3 : 0.85}
+              style={{ cursor: 'pointer', transition: 'r 0.15s' }}
+              onMouseEnter={() => setHoveredPt(i)}
+              onMouseLeave={() => setHoveredPt(null)}
+              onClick={() => onSelectSwing && onSelectSwing(pt.id)}
+            />
+          );
+        })}
+        {/* Hover tooltip */}
+        {hoveredPt != null && (() => {
+          const pt = points[hoveredPt];
+          const [cx, cy] = toSvg(pt.x, pt.y);
+          const tx = cx > W / 2 ? cx - 140 : cx + 12;
+          const ty = Math.max(PAD, Math.min(cy - 10, H - PAD - 60));
+          return (
+            <g>
+              <rect x={tx} y={ty} width={130} height={52} rx={4} fill={COLORS.surface} stroke={COLORS.border} strokeWidth={1} />
+              <text x={tx + 6} y={ty + 14} fill={COLORS.text} fontSize={10} fontWeight={700}>
+                {(pt.filename || pt.id).slice(0, 20)}
+              </text>
+              <text x={tx + 6} y={ty + 26} fill={COLORS.textDim} fontSize={9}>
+                {pt.classification || 'unclassified'}{pt.user_label ? ` [${pt.user_label}]` : ''}
+              </text>
+              <text x={tx + 6} y={ty + 38} fill={COLORS.textDim} fontSize={9}>
+                conf: {((pt.confidence || 0) * 100).toFixed(0)}% &middot; q: {pt.quality_score?.toFixed(2) || '?'}
+              </text>
+              <text x={tx + 6} y={ty + 48} fill={COLORS.textMuted} fontSize={8}>
+                peak: {pt.peak_accel?.toFixed(1) || '?'}g
+              </text>
+            </g>
+          );
+        })()}
+      </svg>
+    </div>
+  );
+}
+
 function TopologyChainsTab() {
   const [swings, setSwings] = useState([]);
   const [selectedSwingId, setSelectedSwingId] = useState('');
@@ -1331,6 +1468,17 @@ function TopologyChainsTab() {
         }}>
           {CHAINS.find(c => c.id === activeChain)?.cascade}
         </div>
+      </div>
+
+      {/* Embedding Landscape */}
+      <div style={{ ...cardStyle, borderLeft: `3px solid ${COLORS.purple}` }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: COLORS.purple, marginBottom: 10 }}>
+          EMBEDDING LANDSCAPE
+        </div>
+        <p style={{ fontSize: 10, color: COLORS.textDim, margin: '0 0 8px', letterSpacing: 0.3 }}>
+          40D topological embeddings projected to 2D via PCA. Click a point to inspect.
+        </p>
+        <EmbeddingScatter onSelectSwing={setSelectedSwingId} highlightId={selectedSwingId} />
       </div>
 
       {/* Swing Selector */}

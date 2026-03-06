@@ -186,6 +186,21 @@ export async function fetchTrends() {
   }
 }
 
+export async function fetchEmbeddingMap() {
+  const cached = getCached('embedding_map', 15000);
+  if (cached) return cached;
+  try {
+    const resp = await fetch(`${API_BASE}/api/embeddings/map`);
+    if (!resp.ok) return { points: [], variance_explained: [], count: 0 };
+    const data = await resp.json();
+    setCache('embedding_map', data);
+    return data;
+  } catch (e) {
+    console.error('fetchEmbeddingMap failed:', e);
+    return { points: [], variance_explained: [], count: 0 };
+  }
+}
+
 export async function fetchAnomalies() {
   const cached = getCached('anomalies', 30000);
   if (cached) return cached;

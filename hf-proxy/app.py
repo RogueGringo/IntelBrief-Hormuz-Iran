@@ -1032,6 +1032,66 @@ async def get_stats():
     }
 
 
+@app.get("/api/embeddings/map")
+async def get_embedding_map():
+    """Project 40D topological embeddings to 2D via PCA for scatter visualization."""
+    import numpy as np
+
+    all_swings = store.list_all()
+    points = []
+    embeddings = []
+
+    for summary in all_swings:
+        record = store.load(summary["id"])
+        if not record or record.status != "analyzed":
+            continue
+        topo = record.topology or {}
+        emb = topo.get("embedding", [])
+        if not emb or len(emb) < 2:
+            continue
+
+        feat = record.features or {}
+        points.append({
+            "id": record.id,
+            "filename": record.filename,
+            "classification": record.classification,
+            "confidence": record.classification_confidence,
+            "user_label": record.user_label,
+            "quality_score": feat.get("data_quality_score", feat.get("quality_score")),
+            "peak_accel": feat.get("peak_accel_magnitude"),
+            "embedding_dim": len(emb),
+        })
+        embeddings.append(emb)
+
+    if len(embeddings) < 2:
+        return {"points": [], "variance_explained": [], "count": 0}
+
+    # Pad/truncate to uniform dimension
+    dim = max(len(e) for e in embeddings)
+    mat = np.zeros((len(embeddings), dim))
+    for i, e in enumerate(embeddings):
+        mat[i, :len(e)] = e
+
+    # PCA: center, SVD, project to 2D
+    mean = mat.mean(axis=0)
+    centered = mat - mean
+    U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+    proj = centered @ Vt[:2].T  # Nx2
+
+    total_var = (S ** 2).sum()
+    var_explained = [(S[i] ** 2 / total_var) for i in range(min(2, len(S)))]
+
+    for i, pt in enumerate(points):
+        pt["x"] = round(float(proj[i, 0]), 4)
+        pt["y"] = round(float(proj[i, 1]), 4)
+
+    return {
+        "points": points,
+        "variance_explained": [round(v, 4) for v in var_explained],
+        "count": len(points),
+    }
+
+
 @app.get("/api/groups")
 async def list_groups():
     """List all workout groups with session counts."""
