@@ -65,10 +65,132 @@ function Header({ activeTab, setActiveTab }) {
 // ─── STUB TAB COMPONENTS ───────────────────────────────────
 
 function ThesisTab() {
-  return <div style={{ padding: 20, color: COLORS.text }}>
-    <h2 style={{ color: COLORS.gold }}>THE THESIS</h2>
-    <p style={{ color: COLORS.textDim }}>Topological motion analysis framework — implementation pending.</p>
-  </div>;
+  const cardStyle = {
+    background: COLORS.surface,
+    border: `1px solid ${COLORS.border}`,
+    borderLeft: `3px solid ${COLORS.gold}`,
+    borderRadius: 6,
+    padding: 16,
+    marginBottom: 20,
+  };
+  const headingStyle = {
+    fontSize: 13,
+    fontWeight: 700,
+    letterSpacing: 2,
+    color: COLORS.gold,
+    marginBottom: 12,
+    marginTop: 0,
+  };
+  const bodyStyle = {
+    fontSize: 13,
+    lineHeight: 1.7,
+    color: COLORS.textDim,
+    margin: 0,
+  };
+
+  const phases = ['Address', 'Backswing', 'Top', 'Downswing', 'Impact', 'Follow-Through', 'Finish'];
+
+  return (
+    <div style={{ padding: 20, color: COLORS.text }}>
+
+      {/* Section 1: Core Thesis */}
+      <div style={cardStyle}>
+        <h3 style={headingStyle}>TOPOLOGICAL MOTION INTELLIGENCE</h3>
+        <p style={bodyStyle}>
+          A $50 IMU sensor captures motion patterns that persistent homology encodes into mathematical
+          invariants — structures that raw statistics miss. During phase transitions in athletic motion,
+          topology-trackers see the change before metric-trackers measure it.
+        </p>
+      </div>
+
+      {/* Section 2: The Pipeline */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 20 }}>
+        {[
+          {
+            title: 'SENSE',
+            text: 'Raw 6-axis IMU data (accelerometer + gyroscope) → 90 extracted features. Phase detection identifies address, backswing, top, downswing, impact, follow-through, finish. Kinematic chain reconstruction from a single wrist sensor.',
+          },
+          {
+            title: 'ENCODE',
+            text: 'Point clouds from feature space → persistent homology computes birth-death pairs across dimensions. H0 (connected components), H1 (loops), H2 (voids). Sheaf cohomology measures per-joint coherence. CST fields detect discontinuities.',
+          },
+          {
+            title: 'REMEMBER',
+            text: 'Topological signatures become training signal for LLM distillation. Teacher model (CPU, 32B) identifies knowledge gaps. Student model (GPU, 8B) learns motion structure through progressive curriculum. Mastery verified topologically.',
+          },
+        ].map((item) => (
+          <div key={item.title} style={cardStyle}>
+            <h3 style={headingStyle}>{item.title}</h3>
+            <p style={bodyStyle}>{item.text}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Section 3: Why Topology? */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+        <div style={{ ...cardStyle, borderLeft: `3px solid ${COLORS.redDim}` }}>
+          <h3 style={{ ...headingStyle, color: COLORS.redDim }}>RAW STATISTICS</h3>
+          <p style={bodyStyle}>
+            Peak acceleration, RMS values, mean angular velocity — these vary with sensor placement,
+            swing speed, and timing. Two identical swings produce different raw traces. Statistics see noise.
+          </p>
+        </div>
+        <div style={{ ...cardStyle, borderLeft: `3px solid ${COLORS.green}` }}>
+          <h3 style={{ ...headingStyle, color: COLORS.green }}>TOPOLOGICAL INVARIANTS</h3>
+          <p style={bodyStyle}>
+            Betti numbers, persistence lifetimes, sheaf coherence — these capture the shape of motion
+            independent of speed or timing. Two swings that “feel the same” produce matching
+            topological signatures. Topology sees structure.
+          </p>
+        </div>
+      </div>
+
+      {/* Section 4: Phase Transitions in Motion */}
+      <div style={cardStyle}>
+        <h3 style={headingStyle}>PHASE TRANSITIONS IN MOTION</h3>
+        <p style={bodyStyle}>
+          Every golf swing passes through 7 topological states: Address → Backswing → Top → Downswing →
+          Impact → Follow-Through → Finish. Each transition is a critical point in the persistence
+          diagram — a birth or death of a topological feature. The downswing-to-impact transition is the
+          highest-energy phase boundary, where the most persistent H1 loops collapse.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, flexWrap: 'wrap' }}>
+          {phases.map((phase, i) => (
+            <span key={phase} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: 1,
+                padding: '4px 10px',
+                borderRadius: 4,
+                background: `${COLORS.gold}18`,
+                color: COLORS.gold,
+                border: `1px solid ${COLORS.gold}40`,
+                whiteSpace: 'nowrap',
+              }}>
+                {phase}
+              </span>
+              {i < phases.length - 1 && (
+                <span style={{ color: COLORS.textMuted, fontSize: 14 }}>{'→'}</span>
+              )}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Section 5: Signal vs Noise */}
+      <div style={cardStyle}>
+        <h3 style={headingStyle}>SIGNAL VS NOISE</h3>
+        <p style={bodyStyle}>
+          <span style={{ color: COLORS.green, fontWeight: 700 }}>CLEAN</span> data has high persistence
+          lifetime and sheaf coherence — the topology is rich and stable.{' '}
+          <span style={{ color: COLORS.red, fontWeight: 700 }}>NOISY</span> data has degenerate topology
+          and low coherence — sensor artifacts dominate the signal. The classification engine separates
+          them, first by keyword scoring, then by LLM semantic analysis.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 const SEVERITY_COLORS = {
