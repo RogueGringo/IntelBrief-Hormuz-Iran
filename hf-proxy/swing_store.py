@@ -22,6 +22,7 @@ class SwingRecord:
     status: str = "ingested"
     notes: str | None = None
     tags: list[str] = field(default_factory=list)
+    group: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -58,6 +59,7 @@ class SwingStore:
                 "classification": data.get("classification"),
                 "tags": data.get("tags", []),
                 "notes": data.get("notes"),
+                "group": data.get("group"),
             })
         return records
 

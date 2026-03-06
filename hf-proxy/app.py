@@ -716,7 +716,7 @@ async def delete_swing(swing_id: str):
 
 @app.patch("/api/swing/{swing_id}")
 async def update_swing(swing_id: str, request: Request):
-    """Update session notes and tags."""
+    """Update session notes, tags, and group."""
     record = store.load(swing_id)
     if not record:
         return JSONResponse({"error": "Swing not found"}, status_code=404)
@@ -726,6 +726,8 @@ async def update_swing(swing_id: str, request: Request):
         updates["notes"] = body["notes"]
     if "tags" in body:
         updates["tags"] = body["tags"]
+    if "group" in body:
+        updates["group"] = body["group"]
     if updates:
         store.update(swing_id, **updates)
     return {"status": "updated", "id": swing_id, **updates}
@@ -747,6 +749,30 @@ async def get_stats():
         "analyzed": analyzed,
         "classifications": classifications,
         "baselines": len(list(BASELINE_DIR.glob("*.json"))),
+    }
+
+
+@app.get("/api/groups")
+async def list_groups():
+    """List all workout groups with session counts."""
+    all_swings = store.list_all()
+    groups = {}
+    ungrouped = 0
+    for s in all_swings:
+        g = s.get("group")
+        if g:
+            if g not in groups:
+                groups[g] = {"name": g, "count": 0, "analyzed": 0, "sessions": []}
+            groups[g]["count"] += 1
+            groups[g]["sessions"].append(s["id"])
+            if s.get("status") == "analyzed":
+                groups[g]["analyzed"] += 1
+        else:
+            ungrouped += 1
+    return {
+        "groups": list(groups.values()),
+        "ungrouped": ungrouped,
+        "total": len(all_swings),
     }
 
 

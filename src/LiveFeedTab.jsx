@@ -273,9 +273,11 @@ export default function SessionFeedTab() {
     : 0;
 
   const [tagFilter, setTagFilter] = useState(null);
+  const [groupFilter, setGroupFilter] = useState(null);
 
-  // Collect all unique tags
+  // Collect all unique tags and groups
   const allTags = [...new Set(swings.flatMap(s => s.tags || []))];
+  const allGroups = [...new Set(swings.map(s => s.group).filter(Boolean))];
 
   // Filtered, searched, and sorted swings
   let filtered = classFilter === 'ALL'
@@ -283,6 +285,9 @@ export default function SessionFeedTab() {
     : swings.filter(s => s.classification === classFilter);
   if (tagFilter) {
     filtered = filtered.filter(s => (s.tags || []).includes(tagFilter));
+  }
+  if (groupFilter) {
+    filtered = filtered.filter(s => s.group === groupFilter);
   }
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
@@ -492,6 +497,22 @@ export default function SessionFeedTab() {
                 color: tagFilter === tag ? COLORS.blue : COLORS.textMuted,
               }}>
                 {tag}
+              </button>
+            ))}
+          </>
+        )}
+        {allGroups.length > 0 && (
+          <>
+            <span style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 1, marginLeft: 8, marginRight: 4 }}>GROUP</span>
+            {allGroups.map(g => (
+              <button key={g} onClick={() => setGroupFilter(groupFilter === g ? null : g)} style={{
+                padding: '4px 10px', borderRadius: 10, fontSize: 9, fontWeight: 600,
+                cursor: 'pointer', border: '1px solid',
+                background: groupFilter === g ? `${COLORS.purple}20` : 'transparent',
+                borderColor: groupFilter === g ? COLORS.purple : COLORS.border,
+                color: groupFilter === g ? COLORS.purple : COLORS.textMuted,
+              }}>
+                {g}
               </button>
             ))}
           </>
@@ -1083,6 +1104,49 @@ ${report.coaching_notes ? `<h2>Coaching Notes</h2><p>${report.coaching_notes}</p
                         </div>
                       </div>
                     )}
+
+                    {/* Group */}
+                    <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
+                      <span style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1 }}>GROUP</span>
+                      <select
+                        value={full.group || swing.group || ''}
+                        onChange={async (e) => {
+                          const group = e.target.value || null;
+                          await fetch(`/api/swing/${id}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ group }),
+                          });
+                          addToast(group ? `Assigned to ${group}` : 'Removed from group', 'info');
+                          loadSwings();
+                        }}
+                        style={{
+                          background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                          borderRadius: 4, color: COLORS.text, padding: '4px 8px',
+                          fontSize: 11, minWidth: 120,
+                        }}
+                      >
+                        <option value="">No group</option>
+                        {[...new Set(swings.map(s => s.group).filter(Boolean))].map(g => (
+                          <option key={g} value={g}>{g}</option>
+                        ))}
+                      </select>
+                      <button onClick={() => {
+                        const name = prompt('New group name:');
+                        if (!name) return;
+                        fetch(`/api/swing/${id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ group: name.trim() }),
+                        }).then(() => { addToast(`Created group: ${name}`, 'success'); loadSwings(); });
+                      }} style={{
+                        fontSize: 9, padding: '3px 8px', borderRadius: 3,
+                        background: 'transparent', color: COLORS.textMuted,
+                        border: `1px dashed ${COLORS.border}`, cursor: 'pointer',
+                      }}>
+                        + new
+                      </button>
+                    </div>
 
                     {/* Tags */}
                     <div style={{ marginTop: 12 }} onClick={e => e.stopPropagation()}>
