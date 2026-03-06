@@ -8,3 +8,4 @@ data/
 
 # Zephyr build artifacts
 FW_DEV/**/build/
+FW_DEV/**/captures/
