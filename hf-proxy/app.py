@@ -195,7 +195,7 @@ async def ingest(file: UploadFile = File(...), ground_truth: str = Form("{}")):
         "gyro_x_mdps", "gyro_y_mdps", "gyro_z_mdps",
     }
     try:
-        text = content.decode("utf-8")
+        text = content.decode("utf-8-sig")  # Handle BOM from Windows tools
     except UnicodeDecodeError:
         return JSONResponse(
             {"error": "File is not valid UTF-8 text"},

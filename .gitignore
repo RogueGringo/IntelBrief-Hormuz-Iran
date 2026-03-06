@@ -9,3 +9,6 @@ data/
 # Zephyr build artifacts
 FW_DEV/**/build/
 FW_DEV/**/captures/
+
+# Captured sensor data
+FW_DEV/Proteus1/sovereign-sensor/captures/
