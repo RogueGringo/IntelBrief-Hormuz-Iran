@@ -255,7 +255,7 @@ export default function SessionFeedTab() {
           Session Feed
         </h2>
         <p style={{ fontSize: 13, color: COLORS.textDim, margin: 0, lineHeight: 1.5, maxWidth: 700 }}>
-          Swing-by-swing session log. Upload CSV files for ingestion, then analyze and coach each swing.
+          Session-by-session motion log. Upload CSV files for ingestion, then analyze and coach each session.
           Auto-refreshes every 30 seconds.
         </p>
       </div>

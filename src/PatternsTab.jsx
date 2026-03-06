@@ -84,11 +84,14 @@ export default function MotionPatternsTab() {
       </div>
 
       {/* Session Overview Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
         {[
-          { label: 'SWINGS ANALYZED', value: loading ? '...' : totalSwings },
+          { label: 'SESSIONS', value: loading ? '...' : totalSwings },
           { label: 'WITH TOPOLOGY', value: loading ? '...' : swingsWithTopo },
           { label: 'BASELINES', value: loading ? '...' : (baselineCount ?? 0) },
+          { label: 'AVG BETTI-0', value: loading ? '...' : (topoSwings.length > 0
+            ? Math.round(topoSwings.reduce((sum, s) => sum + (s.topology?.betti_0 ?? s.topology?.persistence?.betti_0 ?? 0), 0) / topoSwings.length)
+            : '—') },
         ].map((card, i) => (
           <div key={i} style={{
             ...cardStyle,
