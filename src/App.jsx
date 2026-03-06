@@ -1234,14 +1234,17 @@ function TopologyChainsTab() {
           </div>
           {/* Betti numbers and total persistence */}
           <div style={{ display: 'flex', gap: 24, marginTop: 10, fontSize: 12, color: COLORS.textDim }}>
-            {topo.persistence.betti_0 != null && (
-              <span><span style={{ color: COLORS.blue, fontWeight: 700 }}>Betti-0:</span> {topo.persistence.betti_0}</span>
+            {(topo.betti_0 ?? topo.persistence?.betti_0) != null && (
+              <span><span style={{ color: COLORS.blue, fontWeight: 700 }}>Betti-0:</span> {topo.betti_0 ?? topo.persistence?.betti_0}</span>
             )}
-            {topo.persistence.betti_1 != null && (
-              <span><span style={{ color: COLORS.purple, fontWeight: 700 }}>Betti-1:</span> {topo.persistence.betti_1}</span>
+            {(topo.betti_1 ?? topo.persistence?.betti_1) != null && (
+              <span><span style={{ color: COLORS.purple, fontWeight: 700 }}>Betti-1:</span> {topo.betti_1 ?? topo.persistence?.betti_1}</span>
             )}
-            {topo.persistence.total_persistence != null && (
-              <span><span style={{ color: COLORS.gold, fontWeight: 700 }}>Total Persistence:</span> {topo.persistence.total_persistence.toFixed(4)}</span>
+            {(topo.total_persistence ?? topo.persistence?.total_persistence) != null && (
+              <span><span style={{ color: COLORS.gold, fontWeight: 700 }}>Total Persistence:</span> {(topo.total_persistence ?? topo.persistence?.total_persistence)?.toFixed?.(4) || topo.total_persistence}</span>
+            )}
+            {topo.embedding && (
+              <span><span style={{ color: COLORS.textMuted, fontWeight: 700 }}>Embedding:</span> {topo.embedding.length}D</span>
             )}
           </div>
         </div>
@@ -1333,13 +1336,62 @@ function TopologyChainsTab() {
           <div style={{ marginTop: 12, fontSize: 12, color: COLORS.textDim }}>
             {compareResult.error ? (
               <span style={{ color: COLORS.red }}>{compareResult.error}</span>
-            ) : compareResult.delta_persistence != null ? (
+            ) : compareResult.topo_comparison ? (
               <div>
-                <span style={{ color: COLORS.gold, fontWeight: 700 }}>Delta Persistence: </span>
-                <span style={{ color: COLORS.text, fontWeight: 700 }}>{compareResult.delta_persistence.toFixed(4)}</span>
+                <div style={{ display: 'flex', gap: 20, marginBottom: 8 }}>
+                  <span>
+                    <span style={{ color: COLORS.gold, fontWeight: 700 }}>Similarity: </span>
+                    <span style={{
+                      color: compareResult.topo_comparison.similarity > 0.7 ? COLORS.green
+                        : compareResult.topo_comparison.similarity > 0.4 ? '#e0c040' : COLORS.red,
+                      fontWeight: 700, fontSize: 16,
+                    }}>
+                      {(compareResult.topo_comparison.similarity * 100).toFixed(1)}%
+                    </span>
+                  </span>
+                  <span>
+                    <span style={{ color: COLORS.textMuted }}>Cosine: </span>
+                    <span style={{ color: COLORS.text, fontWeight: 600 }}>{compareResult.topo_comparison.cosine_similarity?.toFixed(3)}</span>
+                  </span>
+                  <span>
+                    <span style={{ color: COLORS.textMuted }}>L2 dist: </span>
+                    <span style={{ color: COLORS.text, fontWeight: 600 }}>{compareResult.topo_comparison.l2_distance?.toFixed(3)}</span>
+                  </span>
+                  <span>
+                    <span style={{ color: COLORS.textMuted }}>Betti match: </span>
+                    <span style={{ color: compareResult.topo_comparison.betti_match ? COLORS.green : COLORS.red, fontWeight: 600 }}>
+                      {compareResult.topo_comparison.betti_match ? 'Yes' : 'No'}
+                    </span>
+                  </span>
+                </div>
+                {/* Feature diff summary */}
+                {compareResult.feature_diff && Object.keys(compareResult.feature_diff).length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
+                      KEY FEATURE DELTAS
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
+                      {['accel_mag_max', 'gyro_mag_max', 'smoothness', 'jerk_ratio', 'accel_entropy', 'duration_s'].map(key => {
+                        const d = compareResult.feature_diff[key];
+                        if (!d) return null;
+                        const pct = d.a !== 0 ? ((d.delta / Math.abs(d.a)) * 100) : 0;
+                        return (
+                          <div key={key} style={{ fontSize: 10 }}>
+                            <span style={{ color: COLORS.textMuted }}>{key.replace(/_/g, ' ')}: </span>
+                            <span style={{ color: pct > 10 ? COLORS.red : pct > 5 ? '#e0c040' : COLORS.green, fontWeight: 600 }}>
+                              {pct > 0 ? '+' : ''}{pct.toFixed(1)}%
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
+            ) : compareResult.feature_diff ? (
+              <span style={{ color: '#e0c040' }}>Feature comparison available — encode both swings for topological similarity.</span>
             ) : (
-              <span style={{ color: '#e0c040' }}>Both swings must be encoded first.</span>
+              <span style={{ color: '#e0c040' }}>Both swings must be analyzed first.</span>
             )}
           </div>
         )}

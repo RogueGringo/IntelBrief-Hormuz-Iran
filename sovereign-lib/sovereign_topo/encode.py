@@ -88,6 +88,12 @@ def encode_motion(imu: IMUTimeSeries, window_size: int = 50, stride: int = 10) -
     # Build embedding vector (topological signature)
     embedding = _persistence_to_embedding(persistence, n_bins=20)
 
+    # Persistence pairs for diagram visualization
+    pairs = [
+        {"birth": round(b, 6), "death": round(d, 6) if d != float('inf') else None, "dimension": dim}
+        for b, d, dim in persistence
+    ]
+
     return {
         "embedding": [float(x) for x in embedding],
         "betti_0": betti_0 if betti_0 > 0 else 1,
@@ -95,6 +101,7 @@ def encode_motion(imu: IMUTimeSeries, window_size: int = 50, stride: int = 10) -
         "total_persistence": round(total_persistence, 6),
         "max_persistence": round(max_persistence, 6),
         "persistence_entropy": round(persistence_entropy, 6),
+        "persistence": {"pairs": pairs},
         "point_cloud_stats": {
             "n_points": n_points,
             "mean_distance": float(np.mean(dist_matrix[dist_matrix > 0])) if n_points > 1 else 0.0,
