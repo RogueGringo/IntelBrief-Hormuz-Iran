@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """
-ble_capture_daemon.py — Wireless auto-ingest daemon for Sovereign Sensor.
+ble_capture_daemon.py — Wireless event-driven capture daemon.
 
-Connects to the STEVAL-PROTEUS1 via BLE (P2P Server service), starts IMU
-streaming, reassembles 14-byte notification packets into CSV sessions,
-and uploads them to the FastAPI backend.
+Connects to STEVAL-PROTEUS1 via BLE, arms the sensor, receives burst
+swing data on trigger, converts to CSV, uploads to FastAPI backend.
 
-Usage:
-    python ble_capture_daemon.py                        # auto-scan for P2PSRV1
-    python ble_capture_daemon.py --name P2PSRV1         # specific device name
-    python ble_capture_daemon.py --addr AA:BB:CC:DD:EE  # specific BLE address
-    python ble_capture_daemon.py --api http://host:8000  # custom API URL
+Protocol:
+  ARM:   write 0x01 0x01 to start monitoring
+  DISARM: write 0x01 0x00
+  THRESHOLD: write 0x03 <lo> <hi> (gyro mdps)
+
+  Notifications (burst after swing detection):
+    Header:  [0xFF 0xFF] [uint16 total] [uint16 rate_hz] [uint16 pre_samples]
+    Data:    [uint16 seq] [int16 ax ay az gx gy gz]  (14 bytes each)
+    Footer:  [0xFE 0xFE] [uint32 duration_us]
 """
 
 import argparse
 import asyncio
 import csv
-import io
 import struct
 import sys
 import time
@@ -26,106 +28,104 @@ from pathlib import Path
 import requests
 from bleak import BleakClient, BleakScanner
 
-# ─── BLE UUIDs (P2P Server service) ─────────────────────────
-P2P_SERVICE_UUID = "0000fe40-cc7a-482a-984a-7f2ed5b3e58f"
-P2P_WRITE_UUID   = "0000fe41-8e22-4541-9d4c-21edae82ed19"
-P2P_NOTIFY_UUID  = "0000fe42-8e22-4541-9d4c-21edae82ed19"
+# BLE UUIDs
+P2P_WRITE_UUID  = "0000fe41-8e22-4541-9d4c-21edae82ed19"
+P2P_NOTIFY_UUID = "0000fe42-8e22-4541-9d4c-21edae82ed19"
 
-# ISM330DHCX sensitivities (±4g, 500dps configuration)
-ACCEL_SENSITIVITY_MG  = 0.122   # mg per LSB
-GYRO_SENSITIVITY_MDPS = 17.50   # mdps per LSB
+# ISM330DHCX sensitivities (±4g, 500dps)
+ACCEL_MG_PER_LSB  = 0.122
+GYRO_MDPS_PER_LSB = 17.50
 
-# ─── DEFAULTS ────────────────────────────────────────────────
+# Defaults
 DEFAULT_API = "http://localhost:8000"
 DEFAULT_NAME = "P2PSRV1"
-DEFAULT_RATE_HZ = 100    # 100 Hz = zero packet loss over BLE
+DEFAULT_THRESHOLD = 50000  # mdps
 RECONNECT_DELAY = 3
-RETRY_DELAY = 10
-SESSION_TIMEOUT = 5.0   # seconds of silence to end a session
-SCAN_TIMEOUT = 10.0     # BLE scan duration
+SCAN_TIMEOUT = 10.0
 
 
-class BLECaptureSession:
-    """Collects BLE notification packets into a CSV session."""
+class SwingSession:
+    """Accumulates one burst swing session."""
 
-    def __init__(self, output_dir: Path):
-        self.output_dir = output_dir
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.active = False
+        self.total_samples = 0
+        self.rate_hz = 0
+        self.pre_samples = 0
         self.packets = []
-        self.last_packet_time = 0.0
-        self.session_active = False
-        self.session_id = ""
+        self.duration_us = 0
+        self.complete = False
         self.start_time = 0.0
-        self.missed_packets = 0
-        self.last_seq = -1
 
-    def start(self):
-        self.packets = []
-        self.last_seq = -1
-        self.missed_packets = 0
-        self.session_active = True
+    def on_header(self, data: bytes):
+        self.reset()
+        self.active = True
         self.start_time = time.time()
-        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.last_packet_time = time.time()
+        self.total_samples = struct.unpack_from("<H", data, 2)[0]
+        self.rate_hz = struct.unpack_from("<H", data, 4)[0]
+        self.pre_samples = struct.unpack_from("<H", data, 6)[0]
+        print(f"[*] Swing header: {self.total_samples} samples @ {self.rate_hz} Hz "
+              f"({self.pre_samples} pre-trigger)")
 
-    def add_packet(self, data: bytes):
-        """Parse a 14-byte IMU notification packet."""
+    def on_data(self, data: bytes):
         if len(data) < 14:
             return
-
-        self.last_packet_time = time.time()
-
         seq, ax, ay, az, gx, gy, gz = struct.unpack_from("<Hhhhhhh", data, 0)
+        self.packets.append((seq, ax, ay, az, gx, gy, gz))
 
-        # Track sequence gaps
-        if self.last_seq >= 0:
-            expected = (self.last_seq + 1) & 0xFFFF
-            if seq != expected:
-                gap = (seq - expected) & 0xFFFF
-                self.missed_packets += gap
-        self.last_seq = seq
+    def on_footer(self, data: bytes):
+        self.duration_us = struct.unpack_from("<I", data, 2)[0]
+        self.complete = True
+        self.active = False
+        elapsed = time.time() - self.start_time
+        print(f"[+] Swing complete: {len(self.packets)}/{self.total_samples} packets "
+              f"in {elapsed:.2f}s ({self.duration_us / 1000:.1f}ms capture)")
 
-        elapsed_us = (time.time() - self.start_time) * 1_000_000.0
-        # Convert raw LSB to physical units
-        self.packets.append({
-            "timestamp_us": int(elapsed_us),
-            "accel_x_mg": round(ax * ACCEL_SENSITIVITY_MG, 1),
-            "accel_y_mg": round(ay * ACCEL_SENSITIVITY_MG, 1),
-            "accel_z_mg": round(az * ACCEL_SENSITIVITY_MG, 1),
-            "gyro_x_mdps": round(gx * GYRO_SENSITIVITY_MDPS, 1),
-            "gyro_y_mdps": round(gy * GYRO_SENSITIVITY_MDPS, 1),
-            "gyro_z_mdps": round(gz * GYRO_SENSITIVITY_MDPS, 1),
-        })
-
-    def finalize(self) -> Path | None:
-        """Write accumulated packets to CSV. Returns filepath or None."""
-        if not self.packets:
+    def to_csv(self, output_dir: Path) -> Path | None:
+        if not self.complete or not self.packets:
             return None
 
-        self.session_active = False
-        duration = time.time() - self.start_time
+        session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = output_dir / f"swing_{session_id}.csv"
 
-        filename = f"ble_swing_{self.session_id}.csv"
-        filepath = self.output_dir / filename
+        duration_s = self.duration_us / 1_000_000.0
+        dt_us = 1_000_000.0 / self.rate_hz if self.rate_hz > 0 else 0
 
         with open(filepath, "w", newline="\n") as f:
-            # Header compatible with sovereign-lib ingest
-            f.write(f"# device=PROTEUS1_BLE,session={self.session_id},"
-                    f"rate_hz={len(self.packets) / max(duration, 0.01):.0f},"
-                    f"source=ble\n")
-            writer = csv.DictWriter(f, fieldnames=[
+            f.write(f"# device=PROTEUS1_BLE,session={session_id},"
+                    f"rate_hz={self.rate_hz},source=ble,"
+                    f"pre_trigger={self.pre_samples},"
+                    f"mode=event\n")
+
+            writer = csv.writer(f)
+            writer.writerow([
                 "timestamp_us", "accel_x_mg", "accel_y_mg", "accel_z_mg",
                 "gyro_x_mdps", "gyro_y_mdps", "gyro_z_mdps",
             ])
-            writer.writeheader()
-            writer.writerows(self.packets)
-            f.write(f"# end session={self.session_id},samples={len(self.packets)},"
-                    f"missed={self.missed_packets},duration={duration:.2f}\n")
+
+            for seq, ax, ay, az, gx, gy, gz in self.packets:
+                ts_us = int(seq * dt_us)
+                writer.writerow([
+                    ts_us,
+                    round(ax * ACCEL_MG_PER_LSB, 1),
+                    round(ay * ACCEL_MG_PER_LSB, 1),
+                    round(az * ACCEL_MG_PER_LSB, 1),
+                    round(gx * GYRO_MDPS_PER_LSB, 1),
+                    round(gy * GYRO_MDPS_PER_LSB, 1),
+                    round(gz * GYRO_MDPS_PER_LSB, 1),
+                ])
+
+            f.write(f"# end session={session_id},"
+                    f"samples={len(self.packets)},"
+                    f"duration={duration_s:.3f}\n")
 
         return filepath
 
 
 def upload_csv(filepath: Path, api_base: str) -> bool:
-    """POST CSV to /api/ingest."""
     url = f"{api_base}/api/ingest"
     try:
         with open(filepath, "rb") as f:
@@ -134,7 +134,7 @@ def upload_csv(filepath: Path, api_base: str) -> bool:
             )
         if resp.status_code == 200:
             return True
-        print(f"[!] API returned {resp.status_code}: {resp.text[:200]}")
+        print(f"[!] API {resp.status_code}: {resp.text[:200]}")
         return False
     except requests.ConnectionError:
         return False
@@ -143,186 +143,111 @@ def upload_csv(filepath: Path, api_base: str) -> bool:
         return False
 
 
-def retry_queued(queue: list, api_base: str) -> list:
-    """Retry uploading queued files."""
-    remaining = []
-    for fp in queue:
-        if fp.exists() and not upload_csv(fp, api_base):
-            remaining.append(fp)
-        elif fp.exists():
-            print(f"[+] Queued file uploaded: {fp.name}")
-    return remaining
-
-
-async def scan_for_device(name: str | None, addr: str | None) -> str | None:
-    """Scan for BLE device, return address."""
-    print(f"[*] Scanning for BLE device (timeout={SCAN_TIMEOUT}s)...")
-    devices = await BleakScanner.discover(timeout=SCAN_TIMEOUT)
-
-    for d in devices:
-        if addr and d.address.upper() == addr.upper():
-            print(f"[*] Found device by address: {d.name} ({d.address})")
-            return d.address
-        if name and d.name and name.lower() in d.name.lower():
-            print(f"[*] Found device by name: {d.name} ({d.address})")
-            return d.address
-
-    # Show what we found
-    p2p_devices = [d for d in devices if d.name and "P2P" in d.name.upper()]
-    if p2p_devices:
-        print(f"[*] Found P2P devices but no match:")
-        for d in p2p_devices:
-            print(f"    {d.name} ({d.address})")
-    else:
-        stm_devices = [d for d in devices if d.name and "STM" in d.name.upper()]
-        if stm_devices:
-            print(f"[*] Found STM devices:")
-            for d in stm_devices:
-                print(f"    {d.name} ({d.address})")
-
-    return None
-
-
 async def run_capture(device_addr: str, args):
-    """Connect to device, start streaming, capture sessions."""
     output_dir = Path(args.dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    session = BLECaptureSession(output_dir)
-    session_count = 0
+    session = SwingSession()
+    swing_count = 0
     upload_queue = []
-    streaming = False
 
     def on_notify(_handle, data: bytearray):
-        nonlocal streaming
-        if not session.session_active:
-            session.start()
-            streaming = True
-            print(f"[*] Session started (receiving packets...)")
-        session.add_packet(bytes(data))
+        nonlocal swing_count
+
+        if len(data) >= 8 and data[0] == 0xFF and data[1] == 0xFF:
+            session.on_header(bytes(data))
+        elif len(data) >= 6 and data[0] == 0xFE and data[1] == 0xFE:
+            session.on_footer(bytes(data))
+
+            # Save and upload
+            filepath = session.to_csv(output_dir)
+            if filepath:
+                swing_count += 1
+                if upload_csv(filepath, args.api):
+                    print(f"    -> uploaded to API")
+                else:
+                    upload_queue.append(filepath)
+                    print(f"    -> queued ({len(upload_queue)} in queue)")
+            session.reset()
+        elif session.active and len(data) >= 14:
+            session.on_data(bytes(data))
 
     async with BleakClient(device_addr, timeout=15.0) as client:
-        print(f"[+] Connected to {device_addr}")
-        print(f"    MTU: {client.mtu_size}")
+        print(f"[+] Connected to {device_addr}, MTU={client.mtu_size}")
 
-        # Subscribe to notifications
         await client.start_notify(P2P_NOTIFY_UUID, on_notify)
-        print(f"[*] Subscribed to IMU notifications")
 
-        # Set streaming rate
-        rate_hz = args.rate
-        rate_bytes = bytes([0x02, rate_hz & 0xFF, (rate_hz >> 8) & 0xFF])
-        await client.write_gatt_char(P2P_WRITE_UUID, rate_bytes)
-        print(f"[*] Set rate to {rate_hz} Hz")
-        await asyncio.sleep(0.1)
+        # Set threshold
+        thresh = args.threshold
+        await client.write_gatt_char(
+            P2P_WRITE_UUID, bytes([0x03, thresh & 0xFF, (thresh >> 8) & 0xFF])
+        )
+        print(f"[*] Threshold: {thresh} mdps")
 
-        # Send start command: 0x01 0x01
+        # Arm sensor
         await client.write_gatt_char(P2P_WRITE_UUID, bytes([0x01, 0x01]))
-        print(f"[*] Sent START command")
-        print(f"[*] Streaming... (Ctrl+C to stop)")
+        print(f"[*] ARMED — waiting for swings... (Ctrl+C to stop)")
 
         try:
             while True:
-                await asyncio.sleep(0.5)
-
-                # Check for session timeout (gap in packets)
-                if session.session_active and session.packets:
-                    idle = time.time() - session.last_packet_time
-                    if idle > SESSION_TIMEOUT:
-                        # End current session
-                        filepath = session.finalize()
-                        if filepath:
-                            session_count += 1
-                            n = len(session.packets) if hasattr(session, '_last_count') else 0
-                            # Re-read from file for count
-                            pkt_count = session.last_seq + 1 if session.last_seq >= 0 else 0
-                            missed = session.missed_packets
-                            print(f"[+] Session {session_count:04d}: "
-                                  f"{len(session.packets)} packets received"
-                                  f" ({missed} missed) -> {filepath.name}")
-
-                            if upload_csv(filepath, args.api):
-                                print(f"    -> uploaded to API")
-                            else:
-                                upload_queue.append(filepath)
-                                print(f"    -> queued (API unavailable, "
-                                      f"{len(upload_queue)} in queue)")
-
-                        streaming = False
-
-                # Retry queued uploads periodically
+                await asyncio.sleep(1.0)
+                # Retry queued uploads
                 if upload_queue:
-                    upload_queue = retry_queued(upload_queue, args.api)
-
+                    remaining = []
+                    for fp in upload_queue:
+                        if fp.exists() and not upload_csv(fp, args.api):
+                            remaining.append(fp)
+                    upload_queue = remaining
         except asyncio.CancelledError:
             pass
         finally:
-            # Send stop command
             try:
                 await client.write_gatt_char(P2P_WRITE_UUID, bytes([0x01, 0x00]))
-                print(f"\n[*] Sent STOP command")
+                print(f"\n[*] DISARMED")
             except Exception:
                 pass
-
-            # Finalize any in-progress session
-            if session.session_active:
-                filepath = session.finalize()
-                if filepath:
-                    session_count += 1
-                    print(f"[+] Final session: {len(session.packets)} packets "
-                          f"-> {filepath.name}")
-                    if upload_csv(filepath, args.api):
-                        print(f"    -> uploaded to API")
-                    else:
-                        upload_queue.append(filepath)
-
             await client.stop_notify(P2P_NOTIFY_UUID)
 
-    return session_count, upload_queue
+    return swing_count, upload_queue
 
 
 async def main_async(args):
-    """Main async loop with reconnection."""
-    print(f"[*] Sovereign Sensor BLE Capture Daemon")
+    print(f"[*] Sovereign Sensor BLE Capture Daemon (event-driven)")
     print(f"[*] API: {args.api}")
     print(f"[*] Output: {Path(args.dir).resolve()}")
 
-    total_sessions = 0
-
+    total = 0
     while True:
-        # Scan for device
-        device_addr = args.addr
-        if not device_addr:
-            device_addr = await scan_for_device(args.name, None)
-        if not device_addr:
-            print(f"[!] Device not found. Retrying in {RECONNECT_DELAY}s...")
+        # Scan
+        print(f"[*] Scanning for {args.name}...")
+        device = await BleakScanner.find_device_by_name(args.name, timeout=SCAN_TIMEOUT)
+        if not device:
+            devices = await BleakScanner.discover(timeout=SCAN_TIMEOUT)
+            named = [d for d in devices if d.name]
+            if named:
+                print(f"[*] Found devices: {', '.join(d.name for d in named)}")
+            print(f"[!] {args.name} not found. Retrying...")
             await asyncio.sleep(RECONNECT_DELAY)
             continue
 
-        # Connect and capture
+        print(f"[*] Found: {device.name} ({device.address})")
         try:
-            count, queue = await run_capture(device_addr, args)
-            total_sessions += count
+            count, _ = await run_capture(device.address, args)
+            total += count
         except Exception as e:
-            print(f"[!] BLE error: {e}")
+            print(f"[!] Error: {e}")
 
-        print(f"[*] Disconnected. Reconnecting in {RECONNECT_DELAY}s...")
+        print(f"[*] Reconnecting in {RECONNECT_DELAY}s...")
         await asyncio.sleep(RECONNECT_DELAY)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Sovereign Sensor BLE capture daemon"
-    )
-    parser.add_argument("--name", default=DEFAULT_NAME,
-                        help="BLE device name to scan for")
-    parser.add_argument("--addr", help="BLE device address (skip scan)")
-    parser.add_argument("--dir", default="./captures",
-                        help="Output directory for CSV files")
-    parser.add_argument("--rate", type=int, default=DEFAULT_RATE_HZ,
-                        help="Streaming rate in Hz (default 100, max lossless)")
-    parser.add_argument("--api", default=DEFAULT_API,
-                        help="Backend API base URL")
+    parser = argparse.ArgumentParser(description="Sovereign Sensor BLE capture (event-driven)")
+    parser.add_argument("--name", default=DEFAULT_NAME, help="BLE device name")
+    parser.add_argument("--threshold", type=int, default=DEFAULT_THRESHOLD,
+                        help="Gyro trigger threshold in mdps (default 50000)")
+    parser.add_argument("--dir", default="./captures", help="Output directory")
+    parser.add_argument("--api", default=DEFAULT_API, help="Backend API URL")
     args = parser.parse_args()
 
     try:
