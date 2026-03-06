@@ -151,8 +151,12 @@ function OperationalOverview() {
   const [classifier, setClassifier] = useState(null);
   const [recent, setRecent] = useState([]);
   const [signals, setSignals] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshResult, setRefreshResult] = useState(null);
 
-  useEffect(() => {
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const loadAll = useCallback(() => {
     Promise.all([
       fetch('/api/stats').then(r => r.json()).catch(() => null),
       fetch('/api/classifier/status').then(r => r.json()).catch(() => null),
@@ -165,6 +169,20 @@ function OperationalOverview() {
       setSignals((sig?.signals || []).filter(x => x.severity !== 'green'));
     });
   }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    setRefreshResult(null);
+    try {
+      const resp = await fetch('/api/pipeline/refresh', { method: 'POST' });
+      const data = await resp.json();
+      setRefreshResult(data);
+      loadAll(); // reload stats
+    } catch (e) {
+      setRefreshResult({ error: e.message });
+    }
+    setRefreshing(false);
+  };
 
   if (!stats) return null;
 
@@ -255,6 +273,40 @@ function OperationalOverview() {
             <div style={{ fontSize: 10, color: COLORS.textMuted, textAlign: 'center', padding: 4 }}>No classifications yet</div>
           )}
         </div>
+      </div>
+
+      {/* Pipeline Refresh */}
+      <div style={{
+        display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center',
+        padding: '8px 14px', borderRadius: 6,
+        background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+      }}>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          style={{
+            padding: '6px 18px', borderRadius: 4, fontSize: 10, fontWeight: 700,
+            letterSpacing: 1, cursor: refreshing ? 'not-allowed' : 'pointer',
+            background: refreshing ? COLORS.border : COLORS.gold,
+            color: refreshing ? COLORS.textMuted : COLORS.bg,
+            border: 'none',
+          }}
+        >
+          {refreshing ? 'RUNNING PIPELINE...' : 'REFRESH PIPELINE'}
+        </button>
+        <span style={{ fontSize: 9, color: COLORS.textDim }}>
+          Analyze all → Train classifier → Reclassify
+        </span>
+        {refreshResult && !refreshResult.error && (
+          <span style={{ fontSize: 9, color: COLORS.green, marginLeft: 'auto' }}>
+            {refreshResult.steps?.analyzed || 0} analyzed, {refreshResult.steps?.reclassified || 0} reclassified
+          </span>
+        )}
+        {refreshResult?.error && (
+          <span style={{ fontSize: 9, color: COLORS.red, marginLeft: 'auto' }}>
+            {refreshResult.error}
+          </span>
+        )}
       </div>
 
       {/* Recent Sessions */}

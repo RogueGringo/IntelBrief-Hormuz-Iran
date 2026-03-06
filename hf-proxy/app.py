@@ -859,6 +859,54 @@ async def batch():
     return {"processed": len(results), "results": results}
 
 
+@app.post("/api/pipeline/refresh")
+async def pipeline_refresh():
+    """Full pipeline: analyze all unanalyzed → train classifier → reclassify all."""
+    steps = {}
+
+    # Step 1: Analyze unanalyzed
+    all_swings = store.list_all()
+    analyzed_count = 0
+    for swing in all_swings:
+        if swing["status"] in ("ingested", "features_extracted", "encoded"):
+            try:
+                await _analyze_swing(swing["id"])
+                analyzed_count += 1
+            except Exception:
+                pass
+    steps["analyzed"] = analyzed_count
+
+    # Step 2: Train classifier if possible
+    trained = False
+    if motion_classifier.can_train_mlp():
+        try:
+            result = motion_classifier.train_mlp()
+            trained = True
+            steps["train"] = result
+        except Exception as e:
+            steps["train_error"] = str(e)
+    else:
+        steps["train"] = "skipped (insufficient labels)"
+
+    # Step 3: Reclassify all analyzed sessions
+    reclassified = 0
+    all_swings = store.list_all()  # re-fetch after analysis
+    for summary in all_swings:
+        record = store.load(summary["id"])
+        if not record or record.status != "analyzed":
+            continue
+        embedding = (record.topology or {}).get("embedding", [])
+        if not embedding:
+            continue
+        prediction = motion_classifier.predict(embedding)
+        if prediction["label"]:
+            store.update(summary["id"], classification=prediction["label"], classification_confidence=prediction["confidence"])
+            reclassified += 1
+    steps["reclassified"] = reclassified
+
+    return {"status": "complete", "steps": steps}
+
+
 # ─── SWING CRUD ──────────────────────────────────────────────
 @app.get("/api/swings")
 async def list_swings(
