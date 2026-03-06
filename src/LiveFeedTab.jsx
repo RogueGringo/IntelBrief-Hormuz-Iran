@@ -987,6 +987,21 @@ export default function SessionFeedTab() {
                     Export
                   </button>
                   <button
+                    onClick={() => {
+                      const a = document.createElement('a');
+                      a.href = `/api/swing/${id}/download`;
+                      a.download = swing.filename || `${id}.csv`;
+                      a.click();
+                    }}
+                    style={{
+                      padding: '5px 14px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+                      cursor: 'pointer', background: `${COLORS.green}15`,
+                      border: `1px solid ${COLORS.green}40`, color: COLORS.green,
+                    }}
+                  >
+                    CSV
+                  </button>
+                  <button
                     onClick={async () => {
                       try {
                         const resp = await fetch(`/api/swing/${id}/report`);

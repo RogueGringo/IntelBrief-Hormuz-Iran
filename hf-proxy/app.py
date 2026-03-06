@@ -1481,6 +1481,22 @@ async def get_swing_data(swing_id: str, downsample: int = 1):
     }
 
 
+@app.get("/api/swing/{swing_id}/download")
+async def download_swing_csv(swing_id: str):
+    """Download the original uploaded CSV for a session."""
+    record = store.load(swing_id)
+    if not record:
+        return JSONResponse({"error": "Swing not found"}, status_code=404)
+    csv_files = list(UPLOAD_DIR.glob(f"{swing_id}_*"))
+    if not csv_files:
+        return JSONResponse({"error": "CSV file not found"}, status_code=404)
+    return FileResponse(
+        str(csv_files[0]),
+        media_type="text/csv",
+        filename=record.filename or f"{swing_id}.csv",
+    )
+
+
 # ─── BASELINES ───────────────────────────────────────────────
 @app.get("/api/baselines")
 async def list_baselines():
