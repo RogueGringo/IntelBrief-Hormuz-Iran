@@ -10,6 +10,7 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include "sensor_config.h"
 #include "capture.h"
@@ -229,6 +230,23 @@ int main(void)
     LOG_INF("=== Sovereign Sensor v0.1.0 ===");
     LOG_INF("Phase 1: Threshold Capture + USB CSV");
 
+    /* Enable STBC02 power management (CEN=PD12, open-drain HIGH) */
+    const struct device *gpiod = DEVICE_DT_GET(DT_NODELABEL(gpiod));
+    const struct device *gpioc = DEVICE_DT_GET(DT_NODELABEL(gpioc));
+    if (device_is_ready(gpiod) && device_is_ready(gpioc)) {
+        /* STBC02_CEN = PD12: open-drain, drive HIGH to enable */
+        gpio_pin_configure(gpiod, 12, GPIO_OUTPUT_HIGH | GPIO_OPEN_DRAIN);
+        /* ST1PS02 voltage select: D0=PC9, D1=PC10, D2=PC11 -> all HIGH = 3.3V */
+        gpio_pin_configure(gpioc, 9, GPIO_OUTPUT_HIGH);
+        gpio_pin_configure(gpioc, 10, GPIO_OUTPUT_HIGH);
+        gpio_pin_configure(gpioc, 11, GPIO_OUTPUT_HIGH);
+        /* ST1PS02_AUX = PD13 HIGH */
+        gpio_pin_configure(gpiod, 13, GPIO_OUTPUT_HIGH);
+        LOG_INF("Power: STBC02 enabled, ST1PS02 set to 3.3V");
+        /* Wait for power to stabilize */
+        k_msleep(50);
+    }
+
     /* Initialize subsystems */
     int ret = ring_buffer_init();
     if (ret < 0) {
@@ -239,7 +257,7 @@ int main(void)
     ret = imu_init();
     if (ret < 0) {
         LOG_ERR("IMU init failed: %d", ret);
-        return ret;
+        /* Continue anyway — threads will detect imu_is_ready() == false */
     }
 
     ret = usb_serial_init();
