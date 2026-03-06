@@ -664,10 +664,211 @@ function TopologyChainsTab() {
 }
 
 function SignalMonitorTab() {
-  return <div style={{ padding: 20, color: COLORS.text }}>
-    <h2 style={{ color: COLORS.gold }}>SIGNAL MONITOR</h2>
-    <p style={{ color: COLORS.textDim }}>Motion quality signal tracking — implementation pending.</p>
-  </div>;
+  const [signalData, setSignalData] = useState({ signals: [], categories: {} });
+  const [filter, setFilter] = useState('all');
+  const [analyzerText, setAnalyzerText] = useState('');
+  const [analysisResult, setAnalysisResult] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const data = await fetchSignals();
+      if (active) setSignalData(data);
+    };
+    load();
+    const interval = setInterval(load, 5000);
+    return () => { active = false; clearInterval(interval); };
+  }, []);
+
+  const handleAnalyze = useCallback(() => {
+    if (!analyzerText.trim()) return;
+    setAnalysisResult(classifyText(analyzerText));
+  }, [analyzerText]);
+
+  const signals = signalData.signals || [];
+  const filtered = filter === 'all' ? signals : signals.filter(s => s.category === filter);
+  const greenCount = signals.filter(s => s.severity === 'green').length;
+  const coherence = signals.length > 0 ? Math.round((greenCount / signals.length) * 100) : 0;
+  const coherenceColor = coherence >= 80 ? COLORS.green : coherence >= 50 ? '#e0c040' : COLORS.red;
+
+  const filterButtons = ['all', 'imu', 'features', 'topology', 'llm', 'data'];
+
+  return (
+    <div style={{ padding: '24px 0', color: COLORS.text }}>
+
+      {/* System Status Header */}
+      <div style={{
+        background: COLORS.surface,
+        border: `1px solid ${COLORS.border}`,
+        borderRadius: 6,
+        padding: '20px 24px',
+        marginBottom: 20,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+      }}>
+        <div>
+          <h2 style={{ color: COLORS.gold, fontSize: 20, fontWeight: 700, letterSpacing: 1, margin: 0 }}>
+            SIGNAL MONITOR
+          </h2>
+          <p style={{ color: COLORS.textDim, fontSize: 12, margin: '4px 0 0', letterSpacing: 0.5 }}>
+            Motion Quality Tracking
+          </p>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: coherenceColor, letterSpacing: -1 }}>
+            {coherence}%
+          </div>
+          <div style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 1 }}>COHERENCE</div>
+        </div>
+      </div>
+
+      {/* Filter Controls */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
+        {filterButtons.map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            style={{
+              padding: '6px 14px',
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 1.5,
+              textTransform: 'uppercase',
+              border: `1px solid ${filter === f ? COLORS.gold : COLORS.border}`,
+              background: filter === f ? `${COLORS.gold}20` : COLORS.surface,
+              color: filter === f ? COLORS.gold : COLORS.textMuted,
+              borderRadius: 4,
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+
+      {/* Signal Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 28 }}>
+        {filtered.map(sig => {
+          const catColor = CATEGORY_COLORS[sig.category] || COLORS.textMuted;
+          const sevColor = SEVERITY_COLORS[sig.severity] || SEVERITY_COLORS.unknown;
+          return (
+            <div key={sig.id} style={{
+              background: COLORS.surface,
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: 6,
+              padding: '14px 16px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 10,
+            }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 4,
+                background: catColor,
+              }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: COLORS.textDim, fontSize: 11, letterSpacing: 0.3 }}>
+                  {sig.label}
+                </div>
+                <div style={{ color: COLORS.text, fontSize: 16, fontWeight: 700, marginTop: 3 }}>
+                  {sig.value}
+                </div>
+              </div>
+              <span style={{
+                width: 10, height: 10, borderRadius: '50%', flexShrink: 0, marginTop: 4,
+                background: sevColor,
+              }} />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Semantic Signal Analyzer */}
+      <div style={{
+        background: COLORS.surface,
+        border: `1px solid ${COLORS.border}`,
+        borderRadius: 6,
+        padding: '20px 24px',
+      }}>
+        <h3 style={{ color: COLORS.gold, fontSize: 13, fontWeight: 700, letterSpacing: 2, margin: '0 0 14px' }}>
+          SEMANTIC SIGNAL ANALYZER
+        </h3>
+        <textarea
+          value={analyzerText}
+          onChange={e => setAnalyzerText(e.target.value)}
+          rows={4}
+          placeholder="Paste motion data notes for classification..."
+          style={{
+            width: '100%',
+            background: COLORS.bg,
+            border: `1px solid ${COLORS.border}`,
+            borderRadius: 4,
+            color: COLORS.text,
+            fontSize: 13,
+            padding: '10px 12px',
+            resize: 'vertical',
+            fontFamily: 'inherit',
+            boxSizing: 'border-box',
+          }}
+        />
+        <button
+          onClick={handleAnalyze}
+          style={{
+            marginTop: 10,
+            padding: '8px 24px',
+            background: `${COLORS.gold}20`,
+            border: `1px solid ${COLORS.gold}`,
+            borderRadius: 4,
+            color: COLORS.gold,
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 1.5,
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+          }}
+        >
+          Analyze
+        </button>
+
+        {analysisResult && (
+          <div style={{
+            marginTop: 16,
+            padding: '14px 16px',
+            background: COLORS.bg,
+            border: `1px solid ${COLORS.border}`,
+            borderRadius: 4,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            flexWrap: 'wrap',
+          }}>
+            <span style={{
+              padding: '4px 12px',
+              borderRadius: 4,
+              fontSize: 12,
+              fontWeight: 700,
+              letterSpacing: 1,
+              background: `${CLASS_COLORS[analysisResult.classification] || COLORS.textMuted}20`,
+              color: CLASS_COLORS[analysisResult.classification] || COLORS.textMuted,
+              border: `1px solid ${CLASS_COLORS[analysisResult.classification] || COLORS.textMuted}40`,
+            }}>
+              {analysisResult.classification}
+            </span>
+            <span style={{ color: COLORS.textDim, fontSize: 12 }}>
+              Confidence: <span style={{ color: COLORS.text, fontWeight: 700 }}>{analysisResult.confidence}%</span>
+            </span>
+            <span style={{ color: COLORS.textDim, fontSize: 12 }}>
+              Clean: <span style={{ color: COLORS.green, fontWeight: 700 }}>{analysisResult.cleanHits}</span>
+            </span>
+            <span style={{ color: COLORS.textDim, fontSize: 12 }}>
+              Noisy: <span style={{ color: COLORS.red, fontWeight: 700 }}>{analysisResult.noisyHits}</span>
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function SessionFeedTab() {
