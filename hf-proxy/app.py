@@ -182,6 +182,114 @@ async def health():
     }
 
 
+# ─── SENSOR STATUS ───────────────────────────────────────────
+@app.get("/api/sensor/status")
+async def sensor_status():
+    """Query connected Sovereign Sensor via USB serial."""
+    try:
+        import serial
+        import serial.tools.list_ports
+
+        # Find Sovereign Sensor
+        port_name = None
+        for port in serial.tools.list_ports.comports():
+            hwid = (port.hwid or "").upper()
+            if "0483:5740" in hwid:
+                port_name = port.device
+                break
+
+        if not port_name:
+            return {"connected": False, "error": "Sensor not found"}
+
+        ser = serial.Serial(port_name, 115200, timeout=2, dsrdtr=True)
+        ser.dtr = True
+        import time as _time
+        _time.sleep(0.5)
+        ser.reset_input_buffer()  # Flush any pending session data
+
+        # Send GET STATUS
+        ser.write(b"GET STATUS\n")
+        _time.sleep(1.0)
+        resp = ser.read(ser.in_waiting or 512).decode("utf-8", errors="replace").strip()
+        ser.close()
+
+        # Extract only the STATUS line (skip any session data in buffer)
+        for line in resp.split("\n"):
+            line = line.strip()
+            if line.startswith("STATUS "):
+                resp = line
+                break
+
+        if not resp.startswith("STATUS"):
+            return {"connected": True, "port": port_name, "raw": resp}
+
+        # Parse STATUS response
+        status = {"connected": True, "port": port_name}
+        for part in resp.replace("STATUS ", "").split():
+            if "=" in part:
+                k, v = part.split("=", 1)
+                status[k] = v
+
+        return status
+
+    except Exception as e:
+        return {"connected": False, "error": str(e)}
+
+
+@app.post("/api/sensor/command")
+async def sensor_command(request: Request):
+    """Send a command to the Sovereign Sensor."""
+    body = await request.json()
+    cmd = body.get("command", "").strip()
+
+    if not cmd:
+        return JSONResponse({"error": "No command provided"}, status_code=400)
+
+    # Whitelist allowed commands
+    allowed = ["GET STATUS", "GET VERSION"]
+    allowed_prefixes = ["SET THRESHOLD ", "SET DURATION ", "SET COOLDOWN "]
+    if cmd not in allowed and not any(cmd.startswith(p) for p in allowed_prefixes):
+        return JSONResponse({"error": f"Command not allowed: {cmd}"}, status_code=403)
+
+    try:
+        import serial
+        import serial.tools.list_ports
+
+        port_name = None
+        for port in serial.tools.list_ports.comports():
+            hwid = (port.hwid or "").upper()
+            if "0483:5740" in hwid:
+                port_name = port.device
+                break
+
+        if not port_name:
+            return JSONResponse({"error": "Sensor not found"}, status_code=503)
+
+        ser = serial.Serial(port_name, 115200, timeout=2, dsrdtr=True)
+        ser.dtr = True
+        import time as _time
+        _time.sleep(0.5)
+        ser.reset_input_buffer()
+
+        ser.write(f"{cmd}\n".encode())
+        _time.sleep(1.0)
+        raw = ser.read(ser.in_waiting or 512).decode("utf-8", errors="replace").strip()
+        ser.close()
+
+        # Extract the command response (skip session data)
+        resp = raw
+        for line in raw.split("\n"):
+            line = line.strip()
+            if line.startswith("OK ") or line.startswith("ERR ") or line.startswith("STATUS ") or line.startswith("VERSION "):
+                resp = line
+                break
+
+        return {"command": cmd, "response": resp}
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 # ─── INGEST ──────────────────────────────────────────────────
 @app.post("/api/ingest")
 async def ingest(file: UploadFile = File(...), ground_truth: str = Form("{}")):
