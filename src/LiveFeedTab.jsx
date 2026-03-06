@@ -206,6 +206,7 @@ export default function SessionFeedTab() {
 
   const handleBulkDelete = useCallback(async () => {
     if (!selectedIds.size) return;
+    if (!confirm(`Delete ${selectedIds.size} session(s)? This cannot be undone.`)) return;
     for (const id of selectedIds) {
       await fetch(`/api/swing/${id}`, { method: 'DELETE' });
     }
@@ -685,6 +686,21 @@ export default function SessionFeedTab() {
               {filtered.length}/{swings.length} shown
             </span>
           )}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={filtered.length > 0 && selectedIds.size === filtered.length}
+              onChange={() => {
+                if (selectedIds.size === filtered.length) {
+                  setSelectedIds(new Set());
+                } else {
+                  setSelectedIds(new Set(filtered.map(s => s.id || s.swing_id)));
+                }
+              }}
+              style={{ accentColor: COLORS.gold, cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: 9, color: COLORS.textMuted }}>All</span>
+          </label>
         </div>
       )}
 
