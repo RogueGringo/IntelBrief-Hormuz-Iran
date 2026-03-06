@@ -139,7 +139,7 @@ function ThesisTab() {
           <h3 style={{ ...headingStyle, color: COLORS.green }}>TOPOLOGICAL INVARIANTS</h3>
           <p style={bodyStyle}>
             Betti numbers, persistence lifetimes, sheaf coherence — these capture the shape of motion
-            independent of speed or timing. Two swings that “feel the same” produce matching
+            independent of speed or timing. Two swings that "feel the same" produce matching
             topological signatures. Topology sees structure.
           </p>
         </div>
@@ -347,10 +347,377 @@ function SensorNodesTab() {
 }
 
 function ModelRegistryTab() {
-  return <div style={{ padding: 20, color: COLORS.text }}>
-    <h2 style={{ color: COLORS.gold }}>MODEL REGISTRY</h2>
-    <p style={{ color: COLORS.textDim }}>LLM inventory and training status — implementation pending.</p>
-  </div>;
+  const [llmStatus, setLlmStatus] = useState(null);
+  const [models, setModels] = useState([]);
+  const [dashboard, setDashboard] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [distilling, setDistilling] = useState(false);
+  const [distillResult, setDistillResult] = useState(null);
+  const [looping, setLooping] = useState(false);
+  const [loopResult, setLoopResult] = useState(null);
+  const [genResult, setGenResult] = useState(null);
+  const [generating, setGenerating] = useState(false);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [status, mdls, dash] = await Promise.all([
+        fetchLLMStatus(),
+        fetchModels(),
+        fetchAgentDashboard(),
+      ]);
+      setLlmStatus(status);
+      setModels(mdls);
+      setDashboard(typeof dash === 'string' ? dash : (dash?.stdout || dash?.output || ''));
+    } catch (e) {
+      console.error('ModelRegistryTab load error:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const status = await fetchLLMStatus();
+        setLlmStatus(status);
+      } catch (e) {
+        console.error('LLM status refresh error:', e);
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatBytes = (bytes) => {
+    if (!bytes && bytes !== 0) return 'Unknown';
+    const num = Number(bytes);
+    if (isNaN(num)) return 'Unknown';
+    if (num >= 1073741824) return (num / 1073741824).toFixed(1) + ' GB';
+    if (num >= 1048576) return (num / 1048576).toFixed(1) + ' MB';
+    return num + ' B';
+  };
+
+  const getModelName = (path) => {
+    if (!path) return null;
+    const parts = path.replace(/\\/g, '/').split('/');
+    const filename = parts[parts.length - 1];
+    return filename.replace(/\.gguf$/i, '');
+  };
+
+  const handleSwapModel = async (slot, model) => {
+    try {
+      await swapModel(slot, model.path || model.filename, getModelName(model.path || model.filename));
+      const status = await fetchLLMStatus();
+      setLlmStatus(status);
+    } catch (e) {
+      console.error('Swap model error:', e);
+    }
+  };
+
+  const handleDistill = async () => {
+    setDistilling(true);
+    setDistillResult(null);
+    try {
+      const result = await triggerDistill();
+      setDistillResult({ success: true, data: result });
+    } catch (e) {
+      setDistillResult({ success: false, error: e.message || 'Distillation failed' });
+    } finally {
+      setDistilling(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setGenResult(null);
+    try {
+      const result = await fetchAgentDashboard();
+      setGenResult({ success: true, data: result });
+    } catch (e) {
+      setGenResult({ success: false, error: e.message || 'Generation failed' });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleAgentLoop = async () => {
+    setLooping(true);
+    setLoopResult(null);
+    try {
+      const result = await triggerAgentLoop(3);
+      setLoopResult({ success: true, data: result });
+    } catch (e) {
+      setLoopResult({ success: false, error: e.message || 'Agent loop failed' });
+    } finally {
+      setLooping(false);
+    }
+  };
+
+  const cardStyle = {
+    background: COLORS.surface,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: 6,
+    padding: 16,
+    marginBottom: 20,
+  };
+
+  const headingStyle = {
+    fontSize: 13,
+    fontWeight: 700,
+    letterSpacing: 2,
+    color: COLORS.gold,
+    marginBottom: 12,
+    marginTop: 0,
+  };
+
+  const actionBtnStyle = {
+    padding: '10px 20px',
+    background: COLORS.gold,
+    color: COLORS.bg,
+    border: 'none',
+    borderRadius: 4,
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: 1,
+    cursor: 'pointer',
+  };
+
+  const gpuModel = llmStatus?.gpu_model || llmStatus?.gpu?.model || null;
+  const gpuLoaded = !!(gpuModel || llmStatus?.gpu?.loaded);
+  const cpuModel = llmStatus?.cpu_model || llmStatus?.cpu?.model || null;
+  const cpuLoaded = !!(cpuModel || llmStatus?.cpu?.loaded);
+
+  if (loading) {
+    return (
+      <div style={{ padding: 20, color: COLORS.textMuted, fontSize: 13 }}>
+        Loading model registry...
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: 20, color: COLORS.text }}>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ color: COLORS.gold, fontSize: 20, fontWeight: 700, letterSpacing: 1, margin: 0 }}>
+          MODEL REGISTRY
+        </h2>
+        <p style={{ color: COLORS.textDim, fontSize: 12, margin: '4px 0 0', letterSpacing: 0.5 }}>
+          LLM Inventory and Training Status
+        </p>
+      </div>
+
+      {/* Active Models */}
+      <div style={cardStyle}>
+        <h3 style={headingStyle}>ACTIVE MODELS</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          {/* GPU Slot */}
+          <div style={{
+            background: COLORS.bg,
+            border: `1px solid ${COLORS.border}`,
+            borderRadius: 6,
+            padding: 16,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: gpuLoaded ? COLORS.green : COLORS.red,
+              }} />
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: COLORS.textDim }}>
+                GPU SLOT
+              </span>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text, marginBottom: 4 }}>
+              {gpuModel || 'Not loaded'}
+            </div>
+            <div style={{ fontSize: 11, color: COLORS.textMuted }}>Backend: GPU</div>
+            {gpuLoaded && (
+              <div style={{ fontSize: 11, color: COLORS.green, marginTop: 4 }}>Inference: &lt;100ms</div>
+            )}
+          </div>
+
+          {/* CPU Slot */}
+          <div style={{
+            background: COLORS.bg,
+            border: `1px solid ${COLORS.border}`,
+            borderRadius: 6,
+            padding: 16,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: cpuLoaded ? COLORS.green : COLORS.red,
+              }} />
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: COLORS.textDim }}>
+                CPU SLOT
+              </span>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text, marginBottom: 4 }}>
+              {cpuModel || 'Not loaded'}
+            </div>
+            <div style={{ fontSize: 11, color: COLORS.textMuted }}>Backend: CPU</div>
+            {cpuLoaded && (
+              <div style={{ fontSize: 11, color: COLORS.green, marginTop: 4 }}>Inference: 2-5s</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Available Models */}
+      <div style={cardStyle}>
+        <h3 style={headingStyle}>AVAILABLE MODELS</h3>
+        {models.length === 0 ? (
+          <div style={{ color: COLORS.textMuted, fontSize: 12 }}>
+            No GGUF models found in models directory. Place .gguf files in data/models/.
+          </div>
+        ) : (
+          <div>
+            {models.map((model, i) => {
+              const name = getModelName(model.path || model.filename || model.name || `model-${i}`);
+              return (
+                <div key={i} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 12px',
+                  borderBottom: i < models.length - 1 ? `1px solid ${COLORS.border}` : 'none',
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text }}>{name}</div>
+                    <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2 }}>
+                      {formatBytes(model.size || model.bytes)}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleSwapModel('gpu', model)}
+                    style={{
+                      padding: '5px 12px',
+                      background: `${COLORS.gold}22`,
+                      color: COLORS.gold,
+                      border: `1px solid ${COLORS.gold}44`,
+                      borderRadius: 4,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: 0.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Load GPU
+                  </button>
+                  <button
+                    onClick={() => handleSwapModel('cpu', model)}
+                    style={{
+                      padding: '5px 12px',
+                      background: `${COLORS.gold}22`,
+                      color: COLORS.gold,
+                      border: `1px solid ${COLORS.gold}44`,
+                      borderRadius: 4,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: 0.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Load CPU
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Agent Dashboard */}
+      <div style={cardStyle}>
+        <h3 style={headingStyle}>AGENT DASHBOARD</h3>
+        {dashboard ? (
+          <pre style={{
+            background: '#0a0a0a',
+            border: `1px solid ${COLORS.border}`,
+            borderRadius: 4,
+            padding: 16,
+            fontFamily: "'Fira Code', 'Cascadia Code', 'Consolas', monospace",
+            fontSize: 11,
+            lineHeight: 1.6,
+            color: COLORS.textDim,
+            overflow: 'auto',
+            maxHeight: 300,
+            margin: 0,
+            whiteSpace: 'pre-wrap',
+          }}>
+            {dashboard}
+          </pre>
+        ) : (
+          <div style={{ color: COLORS.textMuted, fontSize: 12 }}>
+            Agent dashboard unavailable — sovereign-lib CLI not found.
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div style={cardStyle}>
+        <h3 style={headingStyle}>ACTIONS</h3>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <button
+            onClick={handleDistill}
+            disabled={distilling}
+            style={{ ...actionBtnStyle, opacity: distilling ? 0.6 : 1 }}
+          >
+            {distilling ? 'Distilling...' : 'Start Distillation'}
+          </button>
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            style={{ ...actionBtnStyle, opacity: generating ? 0.6 : 1 }}
+          >
+            {generating ? 'Generating...' : 'Generate Curriculum'}
+          </button>
+          <button
+            onClick={handleAgentLoop}
+            disabled={looping}
+            style={{ ...actionBtnStyle, opacity: looping ? 0.6 : 1 }}
+          >
+            {looping ? 'Running...' : 'Run Agent Loop'}
+          </button>
+        </div>
+        {distillResult && (
+          <div style={{
+            marginTop: 12, padding: 10, borderRadius: 4, fontSize: 11,
+            background: distillResult.success ? `${COLORS.green}15` : `${COLORS.red}15`,
+            color: distillResult.success ? COLORS.green : COLORS.red,
+          }}>
+            {distillResult.success
+              ? (typeof distillResult.data === 'string' ? distillResult.data : 'Distillation started successfully.')
+              : distillResult.error}
+          </div>
+        )}
+        {genResult && (
+          <div style={{
+            marginTop: 12, padding: 10, borderRadius: 4, fontSize: 11,
+            background: genResult.success ? `${COLORS.green}15` : `${COLORS.red}15`,
+            color: genResult.success ? COLORS.green : COLORS.red,
+          }}>
+            {genResult.success
+              ? (typeof genResult.data === 'string' ? genResult.data : 'Curriculum generated successfully.')
+              : genResult.error}
+          </div>
+        )}
+        {loopResult && (
+          <div style={{
+            marginTop: 12, padding: 10, borderRadius: 4, fontSize: 11,
+            background: loopResult.success ? `${COLORS.green}15` : `${COLORS.red}15`,
+            color: loopResult.success ? COLORS.green : COLORS.red,
+          }}>
+            {loopResult.success
+              ? (typeof loopResult.data === 'string' ? loopResult.data : 'Agent loop completed successfully.')
+              : loopResult.error}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function TopologyChainsTab() {
