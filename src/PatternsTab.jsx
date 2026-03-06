@@ -194,6 +194,72 @@ export default function MotionPatternsTab() {
         )}
       </div>
 
+      {/* Persistence Landscape */}
+      <div style={cardStyle}>
+        <div style={headingStyle}>PERSISTENCE LANDSCAPE</div>
+        {topoSwings.length === 0 ? (
+          <p style={{ fontSize: 13, color: COLORS.textDim, margin: 0 }}>
+            No topology data — analyze sessions to see persistence landscapes.
+          </p>
+        ) : (() => {
+          // Compute persistence landscape: for each swing, sort persistence pairs
+          // by lifetime (death - birth) and plot as a bar chart
+          return (
+            <div>
+              <p style={{ fontSize: 11, color: COLORS.textDim, margin: '0 0 12px', lineHeight: 1.5 }}>
+                Persistence lifetime distribution — longer bars indicate more persistent (stable) topological features.
+              </p>
+              {topoSwings.map((s, si) => {
+                const pairs = (s.topology?.persistence?.pairs || [])
+                  .filter(p => p.death != null)
+                  .map(p => ({ ...p, lifetime: (p.death ?? 0) - (p.birth ?? 0) }))
+                  .sort((a, b) => b.lifetime - a.lifetime)
+                  .slice(0, 20); // Top 20 most persistent features
+
+                if (pairs.length === 0) return null;
+                const maxLife = Math.max(...pairs.map(p => p.lifetime), 0.001);
+                const color = PALETTE[si % PALETTE.length];
+
+                return (
+                  <div key={si} style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, color: color, fontWeight: 700, marginBottom: 4, fontFamily: 'monospace' }}>
+                      {s.id?.slice(0, 8) || `Swing ${si + 1}`}
+                      <span style={{ color: COLORS.textMuted, fontWeight: 400, marginLeft: 8 }}>
+                        {pairs.length} features
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 1, alignItems: 'flex-end', height: 40 }}>
+                      {pairs.map((p, pi) => {
+                        const h = (p.lifetime / maxLife) * 40;
+                        const dimColor = p.dimension === 0 ? COLORS.blue : p.dimension === 1 ? COLORS.purple : COLORS.gold;
+                        return (
+                          <div key={pi} title={`H${p.dimension}: lifetime=${p.lifetime.toFixed(4)}`} style={{
+                            width: Math.max(4, 100 / pairs.length) + '%',
+                            height: Math.max(2, h),
+                            background: dimColor,
+                            opacity: 0.7,
+                            borderRadius: '2px 2px 0 0',
+                          }} />
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 9, color: COLORS.textMuted }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.blue }} /> H0 (components)
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.purple }} /> H1 (loops)
+                </span>
+                <span>Sorted by lifetime (descending), top 20</span>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
       {/* Phase Timing */}
       <div style={cardStyle}>
         <div style={headingStyle}>PHASE TIMING</div>
