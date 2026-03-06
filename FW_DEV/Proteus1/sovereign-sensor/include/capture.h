@@ -31,6 +31,8 @@ enum swing_event {
     SWING_EVENT_NONE = 0,
     SWING_EVENT_START,
     SWING_EVENT_END,
+    SWING_EVENT_DOWNSWING,       /* Gyro detected downswing onset */
+    SWING_EVENT_IMPACT_PREDICT,  /* Gyro predicts impact imminent */
 };
 
 /* Swing detection */

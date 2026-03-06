@@ -157,6 +157,15 @@ uint16_t impact_get_count(void)
     return impact_count;
 }
 
+int impact_get_sample(uint16_t index, int16_t *x, int16_t *y, int16_t *z)
+{
+    if (!impact_captured || index >= impact_count) return -EINVAL;
+    *x = impact_buffer[index].accel_x_mg;
+    *y = impact_buffer[index].accel_y_mg;
+    *z = impact_buffer[index].accel_z_mg;
+    return 0;
+}
+
 uint32_t impact_analyze_peak(void)
 {
     if (!impact_captured || impact_count == 0) return 0;

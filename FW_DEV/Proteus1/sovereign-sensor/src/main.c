@@ -16,6 +16,7 @@
 #include "capture.h"
 #include "transport.h"
 #include "protocol.h"
+#include <stdio.h>
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
@@ -58,6 +59,7 @@ int impact_capture_sample(void);
 bool impact_has_data(void);
 uint16_t impact_get_count(void);
 uint32_t impact_analyze_peak(void);
+int impact_get_sample(uint16_t index, int16_t *x, int16_t *y, int16_t *z);
 
 int environment_init(void);
 float environment_read_temperature(void);
@@ -128,7 +130,7 @@ static void capture_thread_fn(void *p1, void *p2, void *p3)
                 enum swing_event evt = swing_detect_check(&sample);
                 if (evt == SWING_EVENT_START) {
                     session_start();
-                    impact_arm();  /* Arm IIS3DWB for impact capture */
+                    /* Don't arm IIS3DWB yet — wait for downswing detection */
                     current_state = CAPTURE_STATE_CAPTURING;
                     LOG_INF("State: ARMED → CAPTURING (session %04u)",
                             session_get_id());
@@ -139,19 +141,28 @@ static void capture_thread_fn(void *p1, void *p2, void *p3)
         }
 
         case CAPTURE_STATE_CAPTURING: {
-            /* Count samples and check for swing end */
+            /* Count samples and check for swing events */
             struct imu_sample sample;
             int count = ring_buffer_count();
             if (count > 0 &&
                 ring_buffer_peek(&sample, count - 1) == 0) {
                 session_add_sample();
 
-                /* Capture impact vibration in parallel */
+                /* Capture impact vibration (no-op if not yet armed) */
                 if (impact_is_ready()) {
                     impact_capture_sample();
                 }
 
                 enum swing_event evt = swing_detect_check(&sample);
+
+                /* Predictive impact arming via gyroscope */
+                if (evt == SWING_EVENT_DOWNSWING) {
+                    /* Downswing detected — arm IIS3DWB burst capture */
+                    impact_arm();
+                    LOG_INF("Downswing → IIS3DWB armed for impact");
+                } else if (evt == SWING_EVENT_IMPACT_PREDICT) {
+                    LOG_INF("Impact imminent — IIS3DWB capturing burst");
+                }
 
                 /* End on swing end or max duration */
                 float duration = session_get_duration_s();
@@ -235,6 +246,26 @@ static void transport_thread_fn(void *p1, void *p2, void *p3)
             }
         }
 
+        /* Send impact vibration data if available */
+        uint16_t impact_samples = impact_get_count();
+        if (impact_has_data() && impact_samples > 0) {
+            snprintf(line_buf, sizeof(line_buf),
+                     "# impact_section,sensor=IIS3DWB,rate=26700,samples=%u",
+                     impact_samples);
+            usb_serial_writeln(line_buf);
+            usb_serial_writeln("impact_idx,impact_x_mg,impact_y_mg,impact_z_mg");
+
+            for (uint16_t i = 0; i < impact_samples; i++) {
+                int16_t ix, iy, iz;
+                if (impact_get_sample(i, &ix, &iy, &iz) == 0) {
+                    snprintf(line_buf, sizeof(line_buf), "%u,%d,%d,%d",
+                             i, ix, iy, iz);
+                    usb_serial_writeln(line_buf);
+                }
+                if ((i % 64) == 0) k_yield();
+            }
+        }
+
         /* Send footer */
         len = csv_format_footer(line_buf, sizeof(line_buf),
                                 session_get_id(), sent,
@@ -243,7 +274,8 @@ static void transport_thread_fn(void *p1, void *p2, void *p3)
             usb_serial_writeln(line_buf);
         }
 
-        LOG_INF("Transfer complete: %u samples sent via USB", sent);
+        LOG_INF("Transfer complete: %u IMU + %u impact samples via USB",
+                sent, impact_samples);
         transfer_requested = false;
     }
 }
@@ -301,8 +333,8 @@ static void leds_update_state(enum capture_state state)
 
 int main(void)
 {
-    LOG_INF("=== Sovereign Sensor v0.2.0 ===");
-    LOG_INF("Phase 1: Threshold Capture + USB CSV");
+    LOG_INF("=== Sovereign Sensor v0.3.0 ===");
+    LOG_INF("Predictive Impact Arming + Multi-Sensor CSV");
 
     /* Enable STBC02 power management (CEN=PD12, open-drain HIGH) */
     const struct device *gpiod = DEVICE_DT_GET(DT_NODELABEL(gpiod));

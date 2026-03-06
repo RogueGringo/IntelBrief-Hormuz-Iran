@@ -47,10 +47,23 @@ float environment_read_temperature(void)
 {
     if (!temp_ready) return last_temp_c;
 
-    if (sensor_sample_fetch(stts22h_dev) == 0) {
+    int ret = sensor_sample_fetch(stts22h_dev);
+    if (ret == 0) {
         struct sensor_value val;
-        if (sensor_channel_get(stts22h_dev, SENSOR_CHAN_AMBIENT_TEMP, &val) == 0) {
-            last_temp_c = (float)val.val1 + (float)val.val2 / 1000000.0f;
+        ret = sensor_channel_get(stts22h_dev, SENSOR_CHAN_AMBIENT_TEMP, &val);
+        if (ret == 0) {
+            float t = (float)val.val1 + (float)val.val2 / 1000000.0f;
+            if (t != last_temp_c) {
+                LOG_INF("Temperature: %.2f C (was %.2f)", (double)t, (double)last_temp_c);
+            }
+            last_temp_c = t;
+        } else {
+            LOG_WRN("STTS22H channel_get failed: %d", ret);
+        }
+    } else {
+        static uint8_t err_count = 0;
+        if (++err_count <= 3) {
+            LOG_WRN("STTS22H fetch failed: %d", ret);
         }
     }
     return last_temp_c;

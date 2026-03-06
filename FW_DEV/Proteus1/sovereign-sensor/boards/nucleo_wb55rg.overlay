@@ -42,23 +42,24 @@
 	clock-frequency = <I2C_BITRATE_FAST>;
 
 	/* IIS2DLPC: ultra-low-power accel for wake-on-motion */
-	iis2dlpc@18 {
+	iis2dlpc: iis2dlpc@18 {
 		compatible = "st,iis2dlpc";
 		reg = <0x18>;
 	};
 
 	/* STTS22H: temperature sensor for drift compensation */
-	stts22h@3f {
+	stts22h: stts22h@3f {
 		compatible = "st,stts22h";
 		reg = <0x3f>;
+		sampling-rate = <0x04>;  /* STTS22H_1Hz — continuous 1Hz */
 	};
 };
 
 /* Console on lpuart1 */
 / {
 	chosen {
-		zephyr,console = &lpuart1;
-		zephyr,shell-uart = &lpuart1;
+		zephyr,console = &cdc_acm_uart0;
+		zephyr,shell-uart = &cdc_acm_uart0;
 	};
 };
 
