@@ -430,7 +430,7 @@ async def sensor_stream():
 
 # ─── INGEST ──────────────────────────────────────────────────
 @app.post("/api/ingest")
-async def ingest(file: UploadFile = File(...), ground_truth: str = Form("{}")):
+async def ingest(file: UploadFile = File(...), ground_truth: str = Form("{}"), auto_analyze: bool = Form(True)):
     swing_id = store.create_id()
     save_path = UPLOAD_DIR / f"{swing_id}_{file.filename}"
     content = await file.read()
@@ -509,13 +509,25 @@ async def ingest(file: UploadFile = File(...), ground_truth: str = Form("{}")):
         session_meta=session_meta if session_meta else None,
     )
     store.save(record)
-    return {
+
+    result = {
         "id": swing_id,
         "filename": file.filename,
         "status": "ingested",
         "size": len(content),
         "session_meta": session_meta if session_meta else None,
     }
+
+    # Auto-analyze if sovereign-lib is available
+    if auto_analyze and sovereign_lib_available:
+        try:
+            analysis = await analyze(swing_id)
+            result["status"] = "analyzed"
+            result["analysis"] = analysis
+        except Exception as e:
+            result["auto_analyze_error"] = str(e)
+
+    return result
 
 
 # ─── FEATURE EXTRACTION ──────────────────────────────────────
