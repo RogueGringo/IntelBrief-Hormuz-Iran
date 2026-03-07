@@ -146,7 +146,7 @@ function Header({ activeTab, setActiveTab }) {
     { id: "portfolio", label: "PORTFOLIO MAP" },
     { id: "playbook", label: "EFFECT CHAINS" },
     { id: "monitor", label: "SIGNAL MONITOR" },
-    { id: "feed", label: "LIVE FEED" },
+    { id: "feed", label: "CRISIS MONITOR" },
   ];
   return (
     <div style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "24px 32px 0" }}>
@@ -1562,22 +1562,51 @@ function SignalMonitorTab() {
               )}
             </div>
 
-            {/* Chain mapping */}
-            {analysisResult.chainMap.length > 0 && (
+            {/* Crisis Dimensions */}
+            {analysisResult.crisisDimensions && (
               <div style={{
                 padding: "10px 14px", borderRadius: 6,
                 background: `${COLORS.gold}08`, border: `1px solid ${COLORS.gold}20`,
               }}>
-                <div style={{ fontSize: 10, color: COLORS.gold, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>MAPS TO EFFECT CHAIN</div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {analysisResult.chainMap.map((chain, i) => (
-                    <span key={i} style={{
-                      padding: "4px 10px", borderRadius: 4, fontSize: 11,
-                      background: `${COLORS.gold}15`, color: COLORS.gold,
-                      border: `1px solid ${COLORS.gold}30`, fontWeight: 600,
-                    }}>{chain}</span>
-                  ))}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, color: COLORS.gold, fontWeight: 700, letterSpacing: 1 }}>CRISIS DIMENSIONS</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: analysisResult.crisisIndex < 25 ? COLORS.green : analysisResult.crisisIndex < 50 ? COLORS.gold : analysisResult.crisisIndex < 75 ? COLORS.orange : COLORS.red }}>
+                    INDEX: {analysisResult.crisisIndex}/100
+                  </div>
                 </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {Object.entries(analysisResult.crisisDimensions).filter(([, d]) => d.phase !== "CALM").map(([chain, dim]) => {
+                    const phaseColors = { ALERT: COLORS.gold, CRITICAL: COLORS.orange, CRISIS: COLORS.red };
+                    const pc = phaseColors[dim.phase] || COLORS.textMuted;
+                    const mm = dim.mismatchScore || 0;
+                    return (
+                      <span key={chain} style={{
+                        padding: "4px 10px", borderRadius: 4, fontSize: 10,
+                        background: `${pc}12`, color: pc,
+                        border: `1px solid ${pc}30`, fontWeight: 600,
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                      }}>
+                        {chain.split(" ")[0]} [{dim.phase}]
+                        <span style={{ fontSize: 9, color: mm < 0 ? COLORS.green : mm > 0 ? COLORS.red : COLORS.textMuted }}>
+                          mm:{mm > 0 ? "+" : ""}{mm.toFixed(2)}
+                        </span>
+                      </span>
+                    );
+                  })}
+                  {Object.values(analysisResult.crisisDimensions).every(d => d.phase === "CALM") && (
+                    <span style={{ fontSize: 10, color: COLORS.textMuted }}>All dimensions CALM — no crisis signal</span>
+                  )}
+                </div>
+                {analysisResult.compoundFlags && analysisResult.compoundFlags.length > 0 && (
+                  <div style={{ marginTop: 6, display: "flex", gap: 4 }}>
+                    {analysisResult.compoundFlags.map((flag, i) => (
+                      <span key={i} style={{
+                        padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 700,
+                        background: `${COLORS.red}15`, color: COLORS.red,
+                      }}>{flag}</span>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

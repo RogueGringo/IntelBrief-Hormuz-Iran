@@ -58,7 +58,8 @@ COMMODITY_SYMBOLS = {
     "Oil Volatility (OVX)": "^OVX",
 }
 
-# ── Classification (mirrors hf-proxy/app.py) ──────────────────────
+# ── CRISIS CALCULATOR ENGINE (mirrors hf-proxy/app.py) ────────────
+# Algorithm must match across app.py, DataService.jsx, data_fetch.py
 WORD_BOUNDARY_SET = {"if", "may", "says", "ais", "spr", "duc", "bbl"}
 
 EFFECT_KEYWORDS = [
@@ -85,6 +86,46 @@ EVENT_KEYWORDS = [
     "says", "thinks", "suggests", "imagine", "if",
 ]
 
+CHAIN_TERMS = {
+    "Maritime Insurance Cascade": ["insurance", "p&i", "coverage", "withdrawn", "reinsurance", "premium", "hull", "war risk", "club", "lloyd"],
+    "Physical Flow Cascade": ["transit", "ais", "tanker", "vessel", "stranded", "vlcc", "freight", "pipeline", "tonnage", "loading", "cargo", "draft", "hormuz", "strait", "shipping", "blockade"],
+    "Price Architecture Cascade": ["brent", "wti", "spread", "backwardation", "curve", "netback", "breakeven", "ovx", "futures", "contango", "oil price", "crude price", "barrel"],
+    "Supply Constraint Cascade": ["rig count", "duc", "production", "bpd", "capacity", "frac", "drilling", "completions", "shut-in", "spr", "reserve", "opec", "output"],
+    "Geopolitical Escalation Cascade": ["assassination", "regime change", "succession", "irgc", "proxy", "houthi", "hezbollah", "retaliation", "strike", "nuclear", "enriched", "breakout", "khamenei", "sanctions", "carrier", "drone attack", "missile", "kharg", "ras tanura"],
+}
+
+EFFECT_SET = set(EFFECT_KEYWORDS)
+CHAIN_EFFECT_TERMS = {chain: [t for t in terms if t in EFFECT_SET] for chain, terms in CHAIN_TERMS.items()}
+
+PHASE_THRESHOLDS = [(5, "CRISIS"), (3, "CRITICAL"), (1, "ALERT"), (0, "CALM")]
+PHASE_ORDER = {"CALM": 0, "ALERT": 1, "CRITICAL": 2, "CRISIS": 3}
+
+COMPOUND_RULES = [
+    ("INSURANCE-FLOW LOCKOUT", "Maritime Insurance Cascade", "Physical Flow Cascade", "CRITICAL", "CRITICAL"),
+    ("PHYSICAL-PRICE DISLOCATION", "Physical Flow Cascade", "Price Architecture Cascade", "CRITICAL", "ALERT"),
+    ("SUPPLY-PRICE SQUEEZE", "Supply Constraint Cascade", "Price Architecture Cascade", "ALERT", "CRITICAL"),
+    ("GEO-INSURANCE CASCADE", "Geopolitical Escalation Cascade", "Maritime Insurance Cascade", "CRITICAL", "ALERT"),
+]
+
+DIMENSION_WEIGHTS = {
+    "Maritime Insurance Cascade": 0.30,
+    "Physical Flow Cascade": 0.25,
+    "Price Architecture Cascade": 0.15,
+    "Supply Constraint Cascade": 0.15,
+    "Geopolitical Escalation Cascade": 0.15,
+}
+
+# Short display names for terminal rendering
+DIMENSION_SHORT = {
+    "Maritime Insurance Cascade": "INSURANCE",
+    "Physical Flow Cascade": "PHYS FLOW",
+    "Price Architecture Cascade": "PRICE ARC",
+    "Supply Constraint Cascade": "SUPPLY",
+    "Geopolitical Escalation Cascade": "GEOPOL",
+}
+
+PHASE_COLORS = {"CALM": "D", "ALERT": "Y", "CRITICAL": "M", "CRISIS": "R"}
+
 
 def _matches(text, kw):
     if kw in WORD_BOUNDARY_SET:
@@ -92,21 +133,74 @@ def _matches(text, kw):
     return kw in text
 
 
+def _phase_for(effect_signal):
+    for threshold, phase in PHASE_THRESHOLDS:
+        if effect_signal >= threshold:
+            return phase
+    return "CALM"
+
+
 def classify(text):
+    """Classify text and compute crisis dimensions. Returns dict."""
+    empty_dims = {name: {"effectSignal": 0, "eventNoise": 0, "mismatchScore": 0, "phase": "CALM", "effectTerms": []}
+                  for name in CHAIN_TERMS}
     if not text:
-        return "MIXED", 0.0
+        return {"classification": "MIXED", "score": 0.0, "crisisDimensions": empty_dims, "crisisIndex": 0, "compoundFlags": []}
+
     lower = text.lower()
-    eff = sum(1 for k in EFFECT_KEYWORDS if _matches(lower, k))
-    evt = sum(1 for k in EVENT_KEYWORDS if _matches(lower, k))
-    total = eff + evt
-    if total == 0:
-        return "MIXED", 0.0
-    score = (eff - evt) / total
+    eff_hits = [k for k in EFFECT_KEYWORDS if _matches(lower, k)]
+    evt_hits = [k for k in EVENT_KEYWORDS if _matches(lower, k)]
+    total = len(eff_hits) + len(evt_hits)
+    score = (len(eff_hits) - len(evt_hits)) / total if total > 0 else 0
+
     if score > 0.15:
-        return "EFFECT", score
+        cls = "EFFECT"
     elif score < -0.15:
-        return "EVENT", score
-    return "MIXED", score
+        cls = "EVENT"
+    else:
+        cls = "MIXED"
+
+    # Crisis dimensions
+    dimensions = {}
+    for chain_name, chain_eff_terms in CHAIN_EFFECT_TERMS.items():
+        eff_terms = [t for t in chain_eff_terms if _matches(lower, t)]
+        eff_sig = len(eff_terms)
+        chain_active = any(_matches(lower, t) for t in CHAIN_TERMS[chain_name])
+        evt_noise = len(evt_hits) if chain_active else 0
+        denom = max(evt_noise + eff_sig, 1)
+        dimensions[chain_name] = {
+            "effectSignal": eff_sig,
+            "eventNoise": evt_noise,
+            "mismatchScore": round((evt_noise - eff_sig) / denom, 3),
+            "phase": _phase_for(eff_sig),
+            "effectTerms": eff_terms,
+        }
+
+    # Compound flags
+    flags = []
+    for flag_name, chain_a, chain_b, min_a, min_b in COMPOUND_RULES:
+        pa = PHASE_ORDER.get(dimensions.get(chain_a, {}).get("phase", "CALM"), 0)
+        pb = PHASE_ORDER.get(dimensions.get(chain_b, {}).get("phase", "CALM"), 0)
+        if pa >= PHASE_ORDER[min_a] and pb >= PHASE_ORDER[min_b]:
+            flags.append(flag_name)
+
+    # Crisis index
+    raw = 0.0
+    neg_mm = []
+    for chain_name, weight in DIMENSION_WEIGHTS.items():
+        dim = dimensions.get(chain_name, {})
+        sig = min(dim.get("effectSignal", 0) / 8.0, 1.0)
+        raw += sig * weight
+        mm = dim.get("mismatchScore", 0)
+        if mm < 0:
+            neg_mm.append(mm)
+    avg_neg = abs(sum(neg_mm) / len(neg_mm)) if neg_mm else 0
+    crisis_index = min(100, round(raw * (1.0 + avg_neg * 0.5) * (1.0 + 0.15 * len(flags)) * 100))
+
+    return {
+        "classification": cls, "score": round(score, 3),
+        "crisisDimensions": dimensions, "crisisIndex": crisis_index, "compoundFlags": flags,
+    }
 
 
 # ── Fetch functions ───────────────────────────────────────────────
@@ -133,11 +227,11 @@ def fetch_feeds(log: SequenceLog):
                     desc = re.sub(r"<[^>]*>", "", desc).strip()[:300]
                     link = getattr(entry, "link", "") or ""
                     pub = getattr(entry, "published", "") or ""
-                    cls, score = classify(title + " " + desc)
+                    analysis = classify(title + " " + desc)
                     items.append({
                         "title": title, "source": src["name"],
                         "category": src["category"], "link": link,
-                        "pubDate": pub, "classification": cls, "score": score,
+                        "pubDate": pub, **analysis,
                     })
             else:
                 stats["failed"] += 1
@@ -229,17 +323,102 @@ def render_price_dashboard(prices):
 
 
 def render_feed_summary(items, top_n=10):
-    """Display top articles with classification badges."""
+    """Display top articles with classification and crisis dimension badges."""
     print()
     cls_colors = {"EFFECT": "G", "EVENT": "Y", "MIXED": "D"}
     for item in items[:top_n]:
-        cls = item["classification"]
+        cls = item.get("classification", "MIXED")
         color = cls_colors.get(cls, "D")
         badge = f"{C[color]}[{cls:^6}]{C['X']}"
-        title = item["title"][:65]
+        # Show dominant crisis dimension phase if any
+        dims = item.get("crisisDimensions", {})
+        active_dims = [(n, d) for n, d in dims.items() if d.get("phase", "CALM") != "CALM"]
+        dim_badge = ""
+        if active_dims:
+            top_dim = max(active_dims, key=lambda x: PHASE_ORDER.get(x[1].get("phase", "CALM"), 0))
+            phase = top_dim[1]["phase"]
+            pc = PHASE_COLORS.get(phase, "D")
+            short = DIMENSION_SHORT.get(top_dim[0], top_dim[0][:8])
+            dim_badge = f" {C[pc]}[{short}:{phase}]{C['X']}"
+        title = item["title"][:60]
         source = item["source"].split("—")[-1].strip()[:15]
-        print(f"  {badge} {C['W']}{title}{C['X']}")
+        print(f"  {badge}{dim_badge} {C['W']}{title}{C['X']}")
         print(f"         {C['D']}{source}{C['X']}")
+
+
+def render_crisis_dashboard(items):
+    """Terminal crisis dashboard — per-dimension gauges, aggregate index, compound flags."""
+    from launcher.display import bar_gauge, hline, box_top, box_row, box_bot
+
+    if not items:
+        print(f"  {C['D']}No items for crisis analysis{C['X']}")
+        return
+
+    # Aggregate dimensions across all items
+    agg = {}
+    for chain_name in CHAIN_TERMS:
+        total_eff = sum(item.get("crisisDimensions", {}).get(chain_name, {}).get("effectSignal", 0) for item in items)
+        total_noise = sum(item.get("crisisDimensions", {}).get(chain_name, {}).get("eventNoise", 0) for item in items)
+        denom = max(total_eff + total_noise, 1)
+        mismatch = round((total_noise - total_eff) / denom, 3)
+        phase = _phase_for(total_eff)
+        agg[chain_name] = {"effectSignal": total_eff, "eventNoise": total_noise, "mismatchScore": mismatch, "phase": phase}
+
+    # Compound flags
+    flags = []
+    for flag_name, chain_a, chain_b, min_a, min_b in COMPOUND_RULES:
+        pa = PHASE_ORDER.get(agg.get(chain_a, {}).get("phase", "CALM"), 0)
+        pb = PHASE_ORDER.get(agg.get(chain_b, {}).get("phase", "CALM"), 0)
+        if pa >= PHASE_ORDER[min_a] and pb >= PHASE_ORDER[min_b]:
+            flags.append(flag_name)
+
+    # Crisis index
+    raw = 0.0
+    neg_mm = []
+    for chain_name, weight in DIMENSION_WEIGHTS.items():
+        dim = agg.get(chain_name, {})
+        sig = min(dim.get("effectSignal", 0) / 8.0, 1.0)
+        raw += sig * weight
+        mm = dim.get("mismatchScore", 0)
+        if mm < 0:
+            neg_mm.append(mm)
+    avg_neg = abs(sum(neg_mm) / len(neg_mm)) if neg_mm else 0
+    crisis_index = min(100, round(raw * (1.0 + avg_neg * 0.5) * (1.0 + 0.15 * len(flags)) * 100))
+
+    # Display
+    print()
+    box_top("CRISIS CALCULATOR")
+    box_bot()
+    print()
+
+    # Aggregate index
+    idx_color = "G" if crisis_index < 25 else ("Y" if crisis_index < 50 else ("M" if crisis_index < 75 else "R"))
+    print(f"  {C['BOLD']}{C['W']}CRISIS INDEX{C['X']}  "
+          f"{C[idx_color]}{C['BOLD']}{crisis_index}{C['X']}{C['D']}/100{C['X']}")
+    print(bar_gauge(crisis_index, 100, 40, "", idx_color))
+    print()
+
+    # Per-dimension
+    for chain_name in CHAIN_TERMS:
+        dim = agg[chain_name]
+        short = DIMENSION_SHORT.get(chain_name, chain_name[:10])
+        phase = dim["phase"]
+        pc = PHASE_COLORS.get(phase, "D")
+        mm = dim["mismatchScore"]
+        mm_color = "G" if mm < 0 else ("R" if mm > 0 else "D")
+        mm_arrow = "◀ REALITY" if mm < -0.1 else ("NARRATIVE ▶" if mm > 0.1 else "≈ BALANCED")
+        print(f"  {C['W']}{short:<12}{C['X']} "
+              f"{C[pc]}[{phase:^8}]{C['X']} "
+              f"eff={dim['effectSignal']:>2} evt={dim['eventNoise']:>2} "
+              f"mismatch={C[mm_color]}{mm:+.3f}{C['X']} {C['D']}{mm_arrow}{C['X']}")
+
+    # Compound flags
+    if flags:
+        print()
+        for flag in flags:
+            print(f"  {C['R']}{C['BOLD']}⚠ {flag}{C['X']}")
+
+    print()
 
 
 def render_price_charts(prices, height=8, width=50):

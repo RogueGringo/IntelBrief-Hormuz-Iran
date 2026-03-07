@@ -166,21 +166,23 @@ export const FEED_SOURCES = [
   },
 ];
 
-// ─── SEMANTIC CLASSIFICATION ─────────────────────────────────
-// Keywords that require word-boundary matching (short words that cause false positives
-// when matched as substrings: "if" in "life", "may" in "dismay", "says" in "essays")
+// ─── CRISIS CALCULATOR ENGINE ────────────────────────────────
+// Algorithm must match across app.py, DataService.jsx, data_fetch.py
+//
+// Core insight: the MISMATCH between narrative (event keywords) and
+// physical reality (effect keywords) per cascade dimension IS the
+// crisis signal. Negative mismatch = reality outrunning narrative =
+// underpriced risk. That's where the information edge lives.
+
 const WORD_BOUNDARY_SET = new Set(["if", "may", "says", "ais", "spr", "duc", "bbl", "eur", "lng", "wti"]);
 
-// Build a regex for word-boundary keywords: matches only as whole words
 function matchesKeyword(lower, keyword) {
   if (WORD_BOUNDARY_SET.has(keyword)) {
-    const re = new RegExp(`\\b${keyword}\\b`, "i");
-    return re.test(lower);
+    return new RegExp(`\\b${keyword}\\b`, "i").test(lower);
   }
   return lower.includes(keyword);
 }
 
-// No duplicate "transit" — deduplicated
 const EFFECT_KEYWORDS = [
   "transit", "ais", "insurance", "p&i", "coverage", "vlcc", "freight",
   "force majeure", "spr", "drawdown", "rig count", "duc", "backwardation",
@@ -193,18 +195,18 @@ const EFFECT_KEYWORDS = [
   "strait", "hormuz", "closure", "blockade",
   "sanctions", "embargo", "quota", "allocation",
   "million barrels", "bbl", "per day", "daily",
-  // Geopolitical effect indicators (from feedback report Layer 1)
+  // Geopolitical effect indicators
   "assassination", "regime change", "succession", "decapitation",
   "kharg island", "ras tanura", "enriched uranium", "breakout time",
   "shadow fleet", "ship-to-ship", "fiscal breakeven",
   // Proxy network / escalation effects
   "houthi", "red sea", "suez canal", "proxy", "retaliation", "strike",
   "drone attack", "missile", "carrier strike group",
-  // Supply/market structure effects (from Layer 2)
+  // Supply/market structure effects
   "spare capacity", "contango", "ovx", "volatility regime",
   "depleted", "decline rate", "tier 1 inventory",
   "lng", "liquefied natural gas",
-  // Domestic asset effects (from Layer 3)
+  // Domestic asset effects
   "lateral", "proppant", "ip-24", "eur", "frac",
   "pearsall", "utica", "eagle ford", "permian",
   "completions", "wellhead", "net revenue interest",
@@ -233,8 +235,99 @@ const CHAIN_TERMS = {
   "Geopolitical Escalation Cascade": ["assassination", "regime change", "succession", "irgc", "proxy", "houthi", "hezbollah", "retaliation", "strike", "nuclear", "enriched", "breakout", "khamenei", "sanctions", "carrier", "drone attack", "missile", "kharg", "ras tanura"],
 };
 
+// Per-chain effect terms: intersection of chain terms with effect keywords
+const EFFECT_SET = new Set(EFFECT_KEYWORDS);
+const CHAIN_EFFECT_TERMS = {};
+for (const [chain, terms] of Object.entries(CHAIN_TERMS)) {
+  CHAIN_EFFECT_TERMS[chain] = terms.filter(t => EFFECT_SET.has(t));
+}
+
+// Phase state thresholds — effect signal density within a dimension
+const PHASE_THRESHOLDS = [[5, "CRISIS"], [3, "CRITICAL"], [1, "ALERT"], [0, "CALM"]];
+const PHASE_ORDER = { CALM: 0, ALERT: 1, CRITICAL: 2, CRISIS: 3 };
+
+// Compound detection rules: [flagName, chainA, chainB, minPhaseA, minPhaseB]
+const COMPOUND_RULES = [
+  ["INSURANCE-FLOW LOCKOUT", "Maritime Insurance Cascade", "Physical Flow Cascade", "CRITICAL", "CRITICAL"],
+  ["PHYSICAL-PRICE DISLOCATION", "Physical Flow Cascade", "Price Architecture Cascade", "CRITICAL", "ALERT"],
+  ["SUPPLY-PRICE SQUEEZE", "Supply Constraint Cascade", "Price Architecture Cascade", "ALERT", "CRITICAL"],
+  ["GEO-INSURANCE CASCADE", "Geopolitical Escalation Cascade", "Maritime Insurance Cascade", "CRITICAL", "ALERT"],
+];
+
+// Crisis index dimension weights (insurance is the kernel condition)
+const DIMENSION_WEIGHTS = {
+  "Maritime Insurance Cascade": 0.30,
+  "Physical Flow Cascade": 0.25,
+  "Price Architecture Cascade": 0.15,
+  "Supply Constraint Cascade": 0.15,
+  "Geopolitical Escalation Cascade": 0.15,
+};
+
+function phaseFor(effectSignal) {
+  for (const [threshold, phase] of PHASE_THRESHOLDS) {
+    if (effectSignal >= threshold) return phase;
+  }
+  return "CALM";
+}
+
+function computeDimensions(lower, eventCount) {
+  const dimensions = {};
+  for (const [chainName, chainEffectTerms] of Object.entries(CHAIN_EFFECT_TERMS)) {
+    const effectTerms = chainEffectTerms.filter(t => matchesKeyword(lower, t));
+    const effectSignal = effectTerms.length;
+    const chainAllTerms = CHAIN_TERMS[chainName];
+    const chainActive = chainAllTerms.some(t => matchesKeyword(lower, t));
+    const eventNoise = chainActive ? eventCount : 0;
+    const denom = Math.max(eventNoise + effectSignal, 1);
+    dimensions[chainName] = {
+      effectSignal,
+      eventNoise,
+      mismatchScore: Math.round(((eventNoise - effectSignal) / denom) * 1000) / 1000,
+      phase: phaseFor(effectSignal),
+      effectTerms,
+    };
+  }
+  return dimensions;
+}
+
+function computeCompoundFlags(dimensions) {
+  const flags = [];
+  for (const [flagName, chainA, chainB, minA, minB] of COMPOUND_RULES) {
+    const phaseA = PHASE_ORDER[dimensions[chainA]?.phase || "CALM"] || 0;
+    const phaseB = PHASE_ORDER[dimensions[chainB]?.phase || "CALM"] || 0;
+    if (phaseA >= PHASE_ORDER[minA] && phaseB >= PHASE_ORDER[minB]) {
+      flags.push(flagName);
+    }
+  }
+  return flags;
+}
+
+function computeCrisisIndex(dimensions, compoundFlags) {
+  let raw = 0;
+  const negMismatches = [];
+  for (const [chainName, weight] of Object.entries(DIMENSION_WEIGHTS)) {
+    const dim = dimensions[chainName] || {};
+    const sig = Math.min((dim.effectSignal || 0) / 8, 1);
+    raw += sig * weight;
+    const mm = dim.mismatchScore || 0;
+    if (mm < 0) negMismatches.push(mm);
+  }
+  const avgNeg = negMismatches.length > 0
+    ? Math.abs(negMismatches.reduce((a, b) => a + b, 0) / negMismatches.length) : 0;
+  const mismatchAmp = 1.0 + (avgNeg * 0.5);
+  const compoundMul = 1.0 + (0.15 * compoundFlags.length);
+  return Math.min(100, Math.round(raw * mismatchAmp * compoundMul * 100));
+}
+
 export function classifyText(text) {
-  if (!text) return { classification: "MIXED", score: 0, effectHits: [], eventHits: [], chainMap: [], confidence: 0 };
+  const emptyDims = {};
+  for (const name of Object.keys(CHAIN_TERMS)) {
+    emptyDims[name] = { effectSignal: 0, eventNoise: 0, mismatchScore: 0, phase: "CALM", effectTerms: [] };
+  }
+  if (!text) return {
+    classification: "MIXED", score: 0, effectHits: [], eventHits: [],
+    chainMap: [], confidence: 0, crisisDimensions: emptyDims, crisisIndex: 0, compoundFlags: [],
+  };
 
   const lower = text.toLowerCase();
   const effectHits = EFFECT_KEYWORDS.filter(k => matchesKeyword(lower, k));
@@ -247,15 +340,65 @@ export function classifyText(text) {
     if (terms.some(t => matchesKeyword(lower, t))) chainMap.push(chain);
   }
 
+  // Crisis dimensions
+  const crisisDimensions = computeDimensions(lower, eventHits.length);
+  const compoundFlags = computeCompoundFlags(crisisDimensions);
+  const crisisIndex = computeCrisisIndex(crisisDimensions, compoundFlags);
+
   return {
+    // Backward-compatible fields
     classification: score > 0.15 ? "EFFECT" : score < -0.15 ? "EVENT" : "MIXED",
     score,
     effectHits,
     eventHits,
     chainMap,
-    // Confidence: scale by 8 hits for 100%, not 4 (less saturation)
     confidence: totalHits > 0 ? Math.min(100, Math.round((totalHits / 8) * 100)) : 0,
+    // Crisis calculator fields
+    crisisDimensions,
+    crisisIndex,
+    compoundFlags,
   };
+}
+
+export function computeCrisisAggregate(items) {
+  if (!items || items.length === 0) return null;
+
+  // Sum per-dimension signals across all items
+  const aggDims = {};
+  for (const chainName of Object.keys(CHAIN_TERMS)) {
+    let totalEffect = 0, totalNoise = 0;
+    for (const item of items) {
+      const dim = item.crisisDimensions?.[chainName] || {};
+      totalEffect += dim.effectSignal || 0;
+      totalNoise += dim.eventNoise || 0;
+    }
+    const denom = Math.max(totalEffect + totalNoise, 1);
+    aggDims[chainName] = {
+      effectSignal: totalEffect,
+      eventNoise: totalNoise,
+      mismatchScore: Math.round(((totalNoise - totalEffect) / denom) * 1000) / 1000,
+      phase: phaseFor(totalEffect),
+    };
+  }
+  const compoundFlags = computeCompoundFlags(aggDims);
+  const crisisIndex = computeCrisisIndex(aggDims, compoundFlags);
+
+  // Temporal trend: split items by midpoint, compare first half vs second half
+  const mid = Math.floor(items.length / 2);
+  const trends = {};
+  if (mid > 0) {
+    const recent = items.slice(0, mid);
+    const older = items.slice(mid);
+    for (const chainName of Object.keys(CHAIN_TERMS)) {
+      const recentSig = recent.reduce((s, i) => s + (i.crisisDimensions?.[chainName]?.effectSignal || 0), 0);
+      const olderSig = older.reduce((s, i) => s + (i.crisisDimensions?.[chainName]?.effectSignal || 0), 0);
+      if (recentSig > olderSig + 1) trends[chainName] = "ESCALATING";
+      else if (olderSig > recentSig + 1) trends[chainName] = "DE-ESCALATING";
+      else trends[chainName] = "STABLE";
+    }
+  }
+
+  return { dimensions: aggDims, crisisIndex, compoundFlags, trends };
 }
 
 // ─── FETCH ALL FEEDS ─────────────────────────────────────────
@@ -269,6 +412,10 @@ export async function fetchAllFeeds() {
   // Strategy 1: HF proxy (server-side, no CORS issues)
   const hfData = await fetchHFProxy("/api/feeds");
   if (hfData && hfData.items && hfData.items.length > 0) {
+    // Compute client-side aggregate if backend didn't include it (graceful upgrade)
+    if (!hfData.crisisAggregate && hfData.items[0]?.crisisDimensions) {
+      hfData.crisisAggregate = computeCrisisAggregate(hfData.items);
+    }
     const payload = { ...hfData, source: "live" };
     setCache(CACHE_KEY, payload);
     return payload;
@@ -321,6 +468,8 @@ export async function fetchAllFeeds() {
     return true;
   });
 
+  const crisisAggregate = computeCrisisAggregate(deduped);
+
   const payload = {
     items: deduped,
     sourceStatus,
@@ -328,6 +477,7 @@ export async function fetchAllFeeds() {
     liveCount: Object.values(sourceStatus).filter(s => s.ok).length,
     totalSources: FEED_SOURCES.length,
     source: deduped.length > 0 ? "live" : "unavailable",
+    crisisAggregate,
   };
 
   if (deduped.length > 0) setCache(CACHE_KEY, payload);

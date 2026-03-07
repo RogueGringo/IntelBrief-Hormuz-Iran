@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchAllFeeds, FEED_SOURCES } from "./DataService.jsx";
+import { fetchAllFeeds, computeCrisisAggregate, FEED_SOURCES } from "./DataService.jsx";
 import { COLORS } from "./theme.js";
 
 const VERIFY_SOURCES = [
@@ -75,6 +75,21 @@ export default function LiveFeedTab() {
   const mixedCount = feedItems.filter(i => i.classification === "MIXED").length;
   const signalRatio = feedItems.length > 0 ? Math.round((effectCount / feedItems.length) * 100) : 0;
 
+  // Crisis aggregate — from server payload or compute client-side
+  const crisisAgg = feedData?.crisisAggregate || (feedItems.length > 0 ? computeCrisisAggregate(feedItems) : null);
+
+  // Dimension display config
+  const DIMENSION_META = {
+    "Maritime Insurance Cascade": { short: "INSURANCE", color: COLORS.red, icon: "shield" },
+    "Physical Flow Cascade": { short: "PHYS FLOW", color: COLORS.orange, icon: "ship" },
+    "Price Architecture Cascade": { short: "PRICE ARC", color: COLORS.blue, icon: "chart" },
+    "Supply Constraint Cascade": { short: "SUPPLY", color: COLORS.purple, icon: "drill" },
+    "Geopolitical Escalation Cascade": { short: "GEOPOL", color: COLORS.gold, icon: "globe" },
+  };
+  const PHASE_COLORS = { CALM: COLORS.textMuted, ALERT: COLORS.gold, CRITICAL: COLORS.orange, CRISIS: COLORS.red };
+  const TREND_ICONS = { ESCALATING: "\u25B2", "DE-ESCALATING": "\u25BC", STABLE: "\u25CF" };
+  const TREND_COLORS = { ESCALATING: COLORS.red, "DE-ESCALATING": COLORS.green, STABLE: COLORS.textMuted };
+
   // Filtered items
   const filtered = feedItems.filter(item => {
     if (feedFilter !== "all" && item.category !== feedFilter) return false;
@@ -108,13 +123,13 @@ export default function LiveFeedTab() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
           <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 22, color: COLORS.gold, margin: "0 0 6px" }}>
-            Live Intelligence Feed
+            Crisis Monitor
           </h2>
           <p style={{ fontSize: 13, color: COLORS.textDim, margin: 0, lineHeight: 1.5, maxWidth: 700 }}>
-            Real-time open-source intelligence classified as{" "}
-            <strong style={{ color: COLORS.green }}>effects</strong> (measurable physical changes) or{" "}
-            <strong style={{ color: COLORS.red }}>events</strong> (narrative, prediction, sentiment).
-            Auto-refreshes every 3 minutes from {FEED_SOURCES.length} sources.
+            Multi-dimensional crisis calculator tracking{" "}
+            <strong style={{ color: COLORS.green }}>physical reality</strong> vs{" "}
+            <strong style={{ color: COLORS.red }}>narrative</strong> across 5 cascade dimensions.
+            The mismatch is the signal. Auto-refreshes every 3 minutes from {FEED_SOURCES.length} sources.
           </p>
         </div>
 
@@ -164,15 +179,128 @@ export default function LiveFeedTab() {
         </div>
       </div>
 
+      {/* Crisis Dashboard Panel */}
+      {crisisAgg && (
+        <div style={{
+          marginBottom: 20, padding: "20px 24px", borderRadius: 12,
+          background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 24, marginBottom: 16 }}>
+            {/* Aggregate Crisis Index */}
+            <div style={{ textAlign: "center", minWidth: 100 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: COLORS.textMuted, marginBottom: 4 }}>
+                CRISIS INDEX
+              </div>
+              <div style={{
+                fontSize: 36, fontWeight: 900, lineHeight: 1,
+                color: crisisAgg.crisisIndex < 25 ? COLORS.green
+                     : crisisAgg.crisisIndex < 50 ? COLORS.gold
+                     : crisisAgg.crisisIndex < 75 ? COLORS.orange : COLORS.red,
+              }}>
+                {crisisAgg.crisisIndex}
+              </div>
+              <div style={{
+                height: 4, borderRadius: 2, marginTop: 6,
+                background: COLORS.border, overflow: "hidden",
+              }}>
+                <div style={{
+                  width: `${crisisAgg.crisisIndex}%`, height: "100%", borderRadius: 2,
+                  background: crisisAgg.crisisIndex < 25 ? COLORS.green
+                            : crisisAgg.crisisIndex < 50 ? COLORS.gold
+                            : crisisAgg.crisisIndex < 75 ? COLORS.orange : COLORS.red,
+                  transition: "width 0.5s ease",
+                }} />
+              </div>
+            </div>
+
+            {/* Dimension Cards */}
+            <div style={{ display: "flex", gap: 10, flex: 1 }}>
+              {Object.entries(DIMENSION_META).map(([chainName, meta]) => {
+                const dim = crisisAgg.dimensions?.[chainName] || {};
+                const trend = crisisAgg.trends?.[chainName] || "STABLE";
+                const phase = dim.phase || "CALM";
+                const mm = dim.mismatchScore || 0;
+                const mmPct = Math.abs(mm) * 100;
+                return (
+                  <div key={chainName} style={{
+                    flex: 1, padding: "10px 12px", borderRadius: 8,
+                    background: `${meta.color}08`, border: `1px solid ${meta.color}20`,
+                    minWidth: 0,
+                  }}>
+                    <div style={{
+                      fontSize: 8, fontWeight: 700, letterSpacing: 1.2,
+                      color: meta.color, marginBottom: 4, whiteSpace: "nowrap",
+                      overflow: "hidden", textOverflow: "ellipsis",
+                    }}>
+                      {meta.short}
+                    </div>
+                    {/* Phase badge */}
+                    <div style={{
+                      display: "inline-block", padding: "1px 6px", borderRadius: 3,
+                      fontSize: 8, fontWeight: 700, letterSpacing: 0.5,
+                      background: `${PHASE_COLORS[phase]}20`,
+                      color: PHASE_COLORS[phase],
+                      marginBottom: 4,
+                    }}>
+                      {phase}
+                    </div>
+                    {/* Mismatch bar */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+                      <div style={{
+                        flex: 1, height: 3, borderRadius: 2, background: COLORS.border, overflow: "hidden",
+                        display: "flex", justifyContent: mm < 0 ? "flex-start" : "flex-end",
+                      }}>
+                        <div style={{
+                          width: `${Math.min(mmPct, 100)}%`, height: "100%", borderRadius: 2,
+                          background: mm < 0 ? COLORS.green : mm > 0 ? COLORS.red : COLORS.textMuted,
+                        }} />
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{
+                        fontSize: 8, color: mm < 0 ? COLORS.green : mm > 0 ? COLORS.red : COLORS.textMuted,
+                      }}>
+                        {mm < -0.1 ? "REALITY" : mm > 0.1 ? "NARRATIVE" : "BALANCED"}
+                      </span>
+                      <span style={{
+                        fontSize: 9, color: TREND_COLORS[trend],
+                      }}>
+                        {TREND_ICONS[trend]}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Compound Flags */}
+          {crisisAgg.compoundFlags && crisisAgg.compoundFlags.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {crisisAgg.compoundFlags.map((flag, i) => (
+                <span key={i} style={{
+                  padding: "3px 10px", borderRadius: 4, fontSize: 9, fontWeight: 700,
+                  letterSpacing: 0.5, background: `${COLORS.red}15`,
+                  color: COLORS.red, border: `1px solid ${COLORS.red}30`,
+                }}>
+                  {flag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Aggregate bar */}
       <div style={{
-        display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 20,
+        display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 12, marginBottom: 20,
       }}>
         {[
           { label: "TOTAL ITEMS", value: feedItems.length, color: COLORS.gold },
           { label: "EFFECTS (SIGNAL)", value: effectCount, color: COLORS.green },
           { label: "EVENTS (NOISE)", value: eventCount, color: COLORS.red },
           { label: "MIXED / AMBIGUOUS", value: mixedCount, color: COLORS.orange },
+          { label: "CRISIS INDEX", value: crisisAgg?.crisisIndex ?? "—", color: crisisAgg?.crisisIndex >= 50 ? COLORS.red : crisisAgg?.crisisIndex >= 25 ? COLORS.gold : COLORS.green },
         ].map((stat, i) => (
           <div key={i} style={{
             padding: "14px 16px", borderRadius: 8, textAlign: "center",
@@ -351,20 +479,51 @@ export default function LiveFeedTab() {
                         </div>
                       )}
                     </div>
-                    {item.chainMap && item.chainMap.length > 0 && (
+                    {/* Crisis Dimensions */}
+                    {item.crisisDimensions && (
                       <div style={{ marginTop: 10 }}>
-                        <div style={{ fontSize: 9, color: COLORS.gold, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
-                          MAPS TO EFFECT CHAIN
+                        <div style={{ fontSize: 9, color: COLORS.gold, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                          CRISIS DIMENSIONS
                         </div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {item.chainMap.map((chain, j) => (
-                            <span key={j} style={{
-                              padding: "3px 8px", borderRadius: 4, fontSize: 10,
-                              background: `${COLORS.gold}12`, color: COLORS.gold,
-                              border: `1px solid ${COLORS.gold}25`, fontWeight: 600,
-                            }}>{chain}</span>
-                          ))}
+                          {Object.entries(item.crisisDimensions).filter(([, d]) => d.phase !== "CALM").map(([chain, dim]) => {
+                            const meta = DIMENSION_META[chain] || { short: chain.slice(0, 8), color: COLORS.gold };
+                            const mm = dim.mismatchScore || 0;
+                            return (
+                              <div key={chain} style={{
+                                padding: "4px 8px", borderRadius: 4, fontSize: 9,
+                                background: `${meta.color}12`, border: `1px solid ${meta.color}25`,
+                                display: "flex", alignItems: "center", gap: 6,
+                              }}>
+                                <span style={{ fontWeight: 700, color: meta.color }}>{meta.short}</span>
+                                <span style={{
+                                  padding: "0 4px", borderRadius: 2, fontSize: 8, fontWeight: 600,
+                                  background: `${PHASE_COLORS[dim.phase]}20`, color: PHASE_COLORS[dim.phase],
+                                }}>{dim.phase}</span>
+                                <span style={{
+                                  fontSize: 8, color: mm < 0 ? COLORS.green : mm > 0 ? COLORS.red : COLORS.textMuted,
+                                }}>
+                                  mm:{mm > 0 ? "+" : ""}{mm.toFixed(2)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          {Object.values(item.crisisDimensions).every(d => d.phase === "CALM") && (
+                            <span style={{ fontSize: 9, color: COLORS.textMuted }}>All dimensions CALM</span>
+                          )}
                         </div>
+                      </div>
+                    )}
+                    {/* Compound flags per item */}
+                    {item.compoundFlags && item.compoundFlags.length > 0 && (
+                      <div style={{ marginTop: 6, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {item.compoundFlags.map((flag, j) => (
+                          <span key={j} style={{
+                            padding: "2px 6px", borderRadius: 3, fontSize: 8, fontWeight: 700,
+                            background: `${COLORS.red}15`, color: COLORS.red,
+                            border: `1px solid ${COLORS.red}25`,
+                          }}>{flag}</span>
+                        ))}
                       </div>
                     )}
                     {item.link && item.link !== "#" && (
