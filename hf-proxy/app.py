@@ -5,7 +5,7 @@ Serves the dashboard frontend at / and live data at /api/*.
 One URL. One deployment. No CORS. Everything works.
 
   /           — The intelligence dashboard (React SPA)
-  /api/feeds  — Aggregated RSS feeds, classified as effect/event
+  /api/feeds  — Aggregated RSS feeds with crisis-dimension analysis
   /api/prices — Real-time commodity prices (Brent, WTI, OVX)
   /api/health — Service status
 """
@@ -88,7 +88,14 @@ def set_cache(key, data):
     _cache[key] = {"data": data, "stored_at": time.time()}
 
 
-# ─── KEYWORD CLASSIFICATION ──────────────────────────────────
+# ─── CRISIS CALCULATOR ENGINE ────────────────────────────────
+# Algorithm must match across app.py, DataService.jsx, data_fetch.py
+#
+# Core insight: the MISMATCH between narrative (event keywords) and
+# physical reality (effect keywords) per cascade dimension IS the
+# crisis signal. Negative mismatch = reality outrunning narrative =
+# underpriced risk. That's where the information edge lives.
+
 WORD_BOUNDARY_SET = {"if", "may", "says", "ais", "spr", "duc", "bbl"}
 
 EFFECT_KEYWORDS = [
@@ -120,29 +127,193 @@ CHAIN_TERMS = {
     "Physical Flow Cascade": ["transit", "ais", "tanker", "vessel", "stranded", "vlcc", "freight", "pipeline", "tonnage", "loading", "cargo", "draft", "hormuz", "strait", "shipping", "blockade"],
     "Price Architecture Cascade": ["brent", "wti", "spread", "backwardation", "curve", "netback", "breakeven", "ovx", "futures", "contango", "oil price", "crude price", "barrel"],
     "Supply Constraint Cascade": ["rig count", "duc", "production", "bpd", "capacity", "frac", "drilling", "completions", "shut-in", "spr", "reserve", "opec", "output"],
+    "Geopolitical Escalation Cascade": ["assassination", "regime change", "succession", "irgc", "proxy", "houthi", "hezbollah", "retaliation", "strike", "nuclear", "enriched", "breakout", "khamenei", "sanctions", "carrier", "drone attack", "missile", "kharg", "ras tanura"],
 }
+
+# Build per-chain EFFECT term index (intersection of chain terms with effect keywords)
+EFFECT_SET = set(EFFECT_KEYWORDS)
+CHAIN_EFFECT_TERMS = {}
+for _chain, _terms in CHAIN_TERMS.items():
+    CHAIN_EFFECT_TERMS[_chain] = [t for t in _terms if t in EFFECT_SET]
+
+# Phase state thresholds — effect signal density within a dimension
+PHASE_THRESHOLDS = [(5, "CRISIS"), (3, "CRITICAL"), (1, "ALERT"), (0, "CALM")]
+
+# Compound detection rules: (flag_name, chain_a, chain_b, min_phase_a, min_phase_b)
+PHASE_ORDER = {"CALM": 0, "ALERT": 1, "CRITICAL": 2, "CRISIS": 3}
+COMPOUND_RULES = [
+    ("INSURANCE-FLOW LOCKOUT", "Maritime Insurance Cascade", "Physical Flow Cascade", "CRITICAL", "CRITICAL"),
+    ("PHYSICAL-PRICE DISLOCATION", "Physical Flow Cascade", "Price Architecture Cascade", "CRITICAL", "ALERT"),
+    ("SUPPLY-PRICE SQUEEZE", "Supply Constraint Cascade", "Price Architecture Cascade", "ALERT", "CRITICAL"),
+    ("GEO-INSURANCE CASCADE", "Geopolitical Escalation Cascade", "Maritime Insurance Cascade", "CRITICAL", "ALERT"),
+]
+
+# Crisis index dimension weights (insurance is the kernel condition)
+DIMENSION_WEIGHTS = {
+    "Maritime Insurance Cascade": 0.30,
+    "Physical Flow Cascade": 0.25,
+    "Price Architecture Cascade": 0.15,
+    "Supply Constraint Cascade": 0.15,
+    "Geopolitical Escalation Cascade": 0.15,
+}
+
 
 def matches_keyword(text_lower, keyword):
     if keyword in WORD_BOUNDARY_SET:
         return bool(re.search(rf"\b{re.escape(keyword)}\b", text_lower))
     return keyword in text_lower
 
+
+def _phase_for(effect_signal):
+    for threshold, phase in PHASE_THRESHOLDS:
+        if effect_signal >= threshold:
+            return phase
+    return "CALM"
+
+
+def _compute_dimensions(lower, effect_hits_set, event_count):
+    """Compute per-chain crisis dimensions for a single text."""
+    dimensions = {}
+    for chain_name, chain_effect_terms in CHAIN_EFFECT_TERMS.items():
+        effect_terms = [t for t in chain_effect_terms if matches_keyword(lower, t)]
+        effect_signal = len(effect_terms)
+        # Event noise is global but weighted by chain relevance
+        chain_all_terms = CHAIN_TERMS[chain_name]
+        chain_active = any(matches_keyword(lower, t) for t in chain_all_terms)
+        event_noise = event_count if chain_active else 0
+        denom = max(event_noise + effect_signal, 1)
+        mismatch = round((event_noise - effect_signal) / denom, 3)
+        dimensions[chain_name] = {
+            "effectSignal": effect_signal,
+            "eventNoise": event_noise,
+            "mismatchScore": mismatch,
+            "phase": _phase_for(effect_signal),
+            "effectTerms": effect_terms,
+        }
+    return dimensions
+
+
+def _compute_compound_flags(dimensions):
+    flags = []
+    for flag_name, chain_a, chain_b, min_a, min_b in COMPOUND_RULES:
+        dim_a = dimensions.get(chain_a, {})
+        dim_b = dimensions.get(chain_b, {})
+        phase_a = PHASE_ORDER.get(dim_a.get("phase", "CALM"), 0)
+        phase_b = PHASE_ORDER.get(dim_b.get("phase", "CALM"), 0)
+        if phase_a >= PHASE_ORDER[min_a] and phase_b >= PHASE_ORDER[min_b]:
+            flags.append(flag_name)
+    return flags
+
+
+def _compute_crisis_index(dimensions, compound_flags):
+    """0-100 aggregate crisis index."""
+    # Weighted effect signal sum (normalize each dimension to 0-1 range, cap at 8 hits)
+    raw = 0.0
+    neg_mismatches = []
+    for chain_name, weight in DIMENSION_WEIGHTS.items():
+        dim = dimensions.get(chain_name, {})
+        sig = min(dim.get("effectSignal", 0) / 8.0, 1.0)
+        raw += sig * weight
+        mm = dim.get("mismatchScore", 0)
+        if mm < 0:
+            neg_mismatches.append(mm)
+    # Mismatch amplifier: reality outrunning narrative amplifies the index
+    avg_neg = abs(sum(neg_mismatches) / len(neg_mismatches)) if neg_mismatches else 0
+    mismatch_amp = 1.0 + (avg_neg * 0.5)
+    # Compound multiplier
+    compound_mul = 1.0 + (0.15 * len(compound_flags))
+    index = raw * mismatch_amp * compound_mul * 100
+    return min(100, round(index))
+
+
 def classify_text(text):
+    """Classify text and compute crisis dimensions.
+
+    Returns backward-compatible fields (classification, score, effectHits,
+    eventHits, chainMap, confidence) plus new crisis calculator fields
+    (crisisDimensions, crisisIndex, compoundFlags).
+    """
+    empty = {
+        "classification": "MIXED", "score": 0,
+        "effectHits": [], "eventHits": [], "chainMap": [], "confidence": 0,
+        "crisisDimensions": {name: {"effectSignal": 0, "eventNoise": 0, "mismatchScore": 0, "phase": "CALM", "effectTerms": []} for name in CHAIN_TERMS},
+        "crisisIndex": 0, "compoundFlags": [],
+    }
     if not text:
-        return {"classification": "MIXED", "score": 0, "effectHits": [], "eventHits": [], "chainMap": [], "confidence": 0}
+        return empty
+
     lower = text.lower()
     effect_hits = [k for k in EFFECT_KEYWORDS if matches_keyword(lower, k)]
     event_hits = [k for k in EVENT_KEYWORDS if matches_keyword(lower, k)]
     total = len(effect_hits) + len(event_hits)
     score = (len(effect_hits) - len(event_hits)) / total if total > 0 else 0
     chains = [name for name, terms in CHAIN_TERMS.items() if any(matches_keyword(lower, t) for t in terms)]
+
+    # Crisis dimensions
+    dimensions = _compute_dimensions(lower, set(effect_hits), len(event_hits))
+    compound_flags = _compute_compound_flags(dimensions)
+    crisis_index = _compute_crisis_index(dimensions, compound_flags)
+
     return {
+        # Backward-compatible fields
         "classification": "EFFECT" if score > 0.15 else ("EVENT" if score < -0.15 else "MIXED"),
         "score": round(score, 3),
         "effectHits": effect_hits,
         "eventHits": event_hits,
         "chainMap": chains,
         "confidence": min(100, round((total / 8) * 100)) if total > 0 else 0,
+        # Crisis calculator fields
+        "crisisDimensions": dimensions,
+        "crisisIndex": crisis_index,
+        "compoundFlags": compound_flags,
+    }
+
+
+def compute_crisis_aggregate(items):
+    """Compute aggregate crisis metrics across all feed items."""
+    if not items:
+        return None
+    # Sum per-dimension signals across all items
+    agg_dims = {}
+    for chain_name in CHAIN_TERMS:
+        total_effect = 0
+        total_noise = 0
+        for item in items:
+            dim = item.get("crisisDimensions", {}).get(chain_name, {})
+            total_effect += dim.get("effectSignal", 0)
+            total_noise += dim.get("eventNoise", 0)
+        denom = max(total_effect + total_noise, 1)
+        mismatch = round((total_noise - total_effect) / denom, 3)
+        agg_dims[chain_name] = {
+            "effectSignal": total_effect,
+            "eventNoise": total_noise,
+            "mismatchScore": mismatch,
+            "phase": _phase_for(total_effect),
+        }
+    compound = _compute_compound_flags(agg_dims)
+    index = _compute_crisis_index(agg_dims, compound)
+
+    # Temporal trend: split items by midpoint, compare first half vs second half
+    mid = len(items) // 2
+    trends = {}
+    if mid > 0:
+        recent = items[:mid]
+        older = items[mid:]
+        for chain_name in CHAIN_TERMS:
+            recent_sig = sum(i.get("crisisDimensions", {}).get(chain_name, {}).get("effectSignal", 0) for i in recent)
+            older_sig = sum(i.get("crisisDimensions", {}).get(chain_name, {}).get("effectSignal", 0) for i in older)
+            if recent_sig > older_sig + 1:
+                trends[chain_name] = "ESCALATING"
+            elif older_sig > recent_sig + 1:
+                trends[chain_name] = "DE-ESCALATING"
+            else:
+                trends[chain_name] = "STABLE"
+
+    return {
+        "dimensions": agg_dims,
+        "crisisIndex": index,
+        "compoundFlags": compound,
+        "trends": trends,
     }
 
 
@@ -201,6 +372,9 @@ async def get_feeds():
             seen.add(key)
             deduped.append(item)
 
+    # Aggregate crisis metrics across the full feed
+    crisis_aggregate = compute_crisis_aggregate(deduped)
+
     payload = {
         "items": deduped,
         "sourceStatus": source_status,
@@ -208,6 +382,7 @@ async def get_feeds():
         "liveCount": sum(1 for s in source_status.values() if s.get("ok")),
         "totalSources": len(FEED_SOURCES),
         "source": "live" if deduped else "unavailable",
+        "crisisAggregate": crisis_aggregate,
     }
     if deduped:
         set_cache("feeds", payload)
